@@ -27,3 +27,7 @@ export function formatDate(iso: string): string {
     timeZone: "UTC",
   });
 }
+
+export function formatDateShort(iso: string): string {
+  return iso.slice(0, 10);
+}

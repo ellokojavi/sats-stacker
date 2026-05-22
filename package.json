@@ -2,11 +2,12 @@
   "name": "sats-stacker",
   "version": "0.1.0",
   "private": true,
-  "description": "A dark-themed Bitcoin DCA portfolio analyzer — cost basis, ROI, and capital efficiency across multiple exchanges. Runs entirely on synthetic demo data.",
+  "description": "A dark-themed Bitcoin DCA portfolio analyzer — cost basis, ROI, capital efficiency, and the Bitcoin power law. Runs entirely on synthetic demo data.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "vitest run"
   },
   "engines": {
     "node": ">=18.18.0"
@@ -24,6 +25,7 @@
     "autoprefixer": "10.4.20",
     "postcss": "8.4.49",
     "tailwindcss": "3.4.15",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "vitest": "^2.1.8"
   }
 }

@@ -32,29 +32,37 @@ export function computeSnapshot(
 }
 
 /**
- * Build the "HODLings value over time" series: for each price-history date,
- * the cumulative BTC held up to that date valued at that date's price.
+ * Build the "HODLings value over time" series: for each price-history date
+ * from the first purchase onward, the cumulative BTC held valued at that
+ * date's price. Price-history points before the first buy are trimmed so the
+ * chart starts where the portfolio does.
  */
 export function computeHoldingsSeries(
   txns: Transaction[],
   prices: PricePoint[],
 ): HoldingsPoint[] {
   const sorted = [...txns].sort((a, b) => a.date.localeCompare(b.date));
+  const firstDay = sorted.length > 0 ? sorted[0].date.slice(0, 10) : "";
+
   let idx = 0;
   let cumBtc = 0;
   let cumUsd = 0;
+  const series: HoldingsPoint[] = [];
 
-  return prices.map((point) => {
+  for (const point of prices) {
     while (idx < sorted.length && sorted[idx].date.slice(0, 10) <= point.date) {
       cumBtc += sorted[idx].btc;
       cumUsd += sorted[idx].usd;
       idx += 1;
     }
-    return {
-      date: point.date,
-      portfolioValue: cumBtc * point.price,
-      btcPrice: point.price,
-      invested: cumUsd,
-    };
-  });
+    if (point.date >= firstDay) {
+      series.push({
+        date: point.date,
+        portfolioValue: cumBtc * point.price,
+        btcPrice: point.price,
+        invested: cumUsd,
+      });
+    }
+  }
+  return series;
 }

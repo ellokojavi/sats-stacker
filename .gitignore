@@ -29,10 +29,15 @@ next-env.d.ts
 .vercel
 
 # ---------------------------------------------------------------
-# SAFEGUARD: never commit real financial data.
-# The only data file tracked in this repo is the SYNTHETIC ledger
-# under /data. The patterns below block real exchange exports if
-# they ever get copied into the repo by mistake.
+# REAL DATA: your own exchange exports go in data/private/ and are
+# never committed. Only the folder's README is tracked.
+# ---------------------------------------------------------------
+/data/private/*
+!/data/private/README.md
+
+# ---------------------------------------------------------------
+# SAFEGUARD: block common real-export filenames anywhere else in
+# the repo, in case they get copied in by mistake.
 # ---------------------------------------------------------------
 Master_BTC_Ledger.csv
 **/Account statement*
