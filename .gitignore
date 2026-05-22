@@ -1,0 +1,42 @@
+# dependencies
+/node_modules
+
+# next.js build output
+/.next/
+/out/
+/build
+
+# misc
+.DS_Store
+*.pem
+*.log
+npm-debug.log*
+
+# typescript
+next-env.d.ts
+*.tsbuildinfo
+
+# environment variables
+.env
+.env.*
+!.env.example
+
+# editors
+.vscode/
+.idea/
+
+# vercel
+.vercel
+
+# ---------------------------------------------------------------
+# SAFEGUARD: never commit real financial data.
+# The only data file tracked in this repo is the SYNTHETIC ledger
+# under /data. The patterns below block real exchange exports if
+# they ever get copied into the repo by mistake.
+# ---------------------------------------------------------------
+Master_BTC_Ledger.csv
+**/Account statement*
+**/*annual-transactions*
+**/*Annual Transactions*
+cash_app_report*
+transfers-personal*
