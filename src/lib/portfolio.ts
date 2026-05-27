@@ -36,10 +36,16 @@ export function computeSnapshot(
  * from the first purchase onward, the cumulative BTC held valued at that
  * date's price. Price-history points before the first buy are trimmed so the
  * chart starts where the portfolio does.
+ *
+ * The bundled price history ends a few days in the past and its final value
+ * is static. When a live price is available, the most recent point is
+ * restated at that price so the chart's right edge agrees with the header
+ * and the snapshot KPIs (which are all driven by the live price).
  */
 export function computeHoldingsSeries(
   txns: Transaction[],
   prices: PricePoint[],
+  currentPrice?: number,
 ): HoldingsPoint[] {
   const sorted = [...txns].sort((a, b) => a.date.localeCompare(b.date));
   const firstDay = sorted.length > 0 ? sorted[0].date.slice(0, 10) : "";
@@ -63,6 +69,15 @@ export function computeHoldingsSeries(
         invested: cumUsd,
       });
     }
+  }
+
+  if (currentPrice && currentPrice > 0 && series.length > 0) {
+    const last = series[series.length - 1];
+    series[series.length - 1] = {
+      ...last,
+      btcPrice: currentPrice,
+      portfolioValue: cumBtc * currentPrice,
+    };
   }
   return series;
 }

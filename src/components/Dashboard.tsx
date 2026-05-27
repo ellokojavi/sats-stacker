@@ -103,8 +103,8 @@ export function Dashboard({
     [txns, price, bundled.date],
   );
   const series = useMemo(
-    () => computeHoldingsSeries(txns, priceHistory),
-    [txns, priceHistory],
+    () => computeHoldingsSeries(txns, priceHistory, price),
+    [txns, priceHistory, price],
   );
   const lots = useMemo(
     () => computeLots(txns, price, bundled.date),
@@ -208,7 +208,9 @@ export function Dashboard({
                 <HallOfFame lots={lots} />
               </div>
             )}
-            {tab === "powerlaw" && <PowerLawSection data={powerLaw} />}
+            {tab === "powerlaw" && (
+              <PowerLawSection data={powerLaw} snapshot={snapshot} />
+            )}
             {tab === "tax" && (
               <TaxSection lots={lots} currentPrice={price} />
             )}
