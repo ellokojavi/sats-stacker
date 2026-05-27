@@ -110,7 +110,10 @@ export function Dashboard({
     () => computeLots(txns, price, bundled.date),
     [txns, price, bundled.date],
   );
-  const yearly = useMemo(() => computeYearly(txns, price), [txns, price]);
+  const yearly = useMemo(
+    () => computeYearly(txns, price, bundled.date),
+    [txns, price, bundled.date],
+  );
   const profitability = useMemo(() => computeProfitability(lots), [lots]);
   const cagr = useMemo(() => computeCagr(lots), [lots]);
   const exchanges = useMemo(

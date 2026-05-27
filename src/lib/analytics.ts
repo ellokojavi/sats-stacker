@@ -47,23 +47,52 @@ export function computeLots(
   });
 }
 
+/**
+ * Compute an annualized return (CAGR) given total invested, current value, and
+ * a dollar-weighted average days held. Returns null for windows too short to
+ * annualize meaningfully — within the first 30 days the (1/yearsHeld) exponent
+ * blows up small differences into nonsense like "+12,000% / yr".
+ */
+function annualize(
+  invested: number,
+  currentValue: number,
+  avgDaysHeld: number,
+): number | null {
+  if (avgDaysHeld < 30 || invested <= 0 || currentValue <= 0) return null;
+  const years = avgDaysHeld / 365.25;
+  if (years <= 0) return null;
+  return (Math.pow(currentValue / invested, 1 / years) - 1) * 100;
+}
+
 /** Aggregate buys by calendar year, with a trailing "Total" row. */
 export function computeYearly(
   txns: Transaction[],
   currentPrice: number,
+  asOf: string,
 ): YearRow[] {
-  const byYear = new Map<string, { btc: number; usd: number }>();
+  const asOfMs = new Date(asOf.slice(0, 10) + "T00:00:00Z").getTime();
+
+  // `weightedDays` accumulates Σ(usd_i · daysHeld_i) per year so we can derive
+  // a capital-weighted average holding period — the right denominator for a
+  // CAGR over a bucket of buys spread across the year.
+  const byYear = new Map<
+    string,
+    { btc: number; usd: number; weightedDays: number }
+  >();
   for (const t of txns) {
     const year = t.date.slice(0, 4);
-    const entry = byYear.get(year) ?? { btc: 0, usd: 0 };
+    const entry = byYear.get(year) ?? { btc: 0, usd: 0, weightedDays: 0 };
     entry.btc += t.btc;
     entry.usd += t.usd;
+    const days = Math.max(0, (asOfMs - toTime(t.date)) / DAY_MS);
+    entry.weightedDays += t.usd * days;
     byYear.set(year, entry);
   }
 
   const rows: YearRow[] = [...byYear.keys()].sort().map((year) => {
-    const { btc, usd } = byYear.get(year)!;
+    const { btc, usd, weightedDays } = byYear.get(year)!;
     const currentValue = btc * currentPrice;
+    const avgDays = usd > 0 ? weightedDays / usd : 0;
     return {
       year,
       btc,
@@ -72,12 +101,18 @@ export function computeYearly(
       currentValue,
       profit: currentValue - usd,
       roi: usd > 0 ? ((currentValue - usd) / usd) * 100 : 0,
+      annualizedRoi: annualize(usd, currentValue, avgDays),
     };
   });
 
   const totalBtc = rows.reduce((s, r) => s + r.btc, 0);
   const totalUsd = rows.reduce((s, r) => s + r.usd, 0);
+  const totalWeightedDays = [...byYear.values()].reduce(
+    (s, e) => s + e.weightedDays,
+    0,
+  );
   const totalValue = totalBtc * currentPrice;
+  const totalAvgDays = totalUsd > 0 ? totalWeightedDays / totalUsd : 0;
   rows.push({
     year: "Total",
     btc: totalBtc,
@@ -86,6 +121,7 @@ export function computeYearly(
     currentValue: totalValue,
     profit: totalValue - totalUsd,
     roi: totalUsd > 0 ? ((totalValue - totalUsd) / totalUsd) * 100 : 0,
+    annualizedRoi: annualize(totalUsd, totalValue, totalAvgDays),
   });
   return rows;
 }

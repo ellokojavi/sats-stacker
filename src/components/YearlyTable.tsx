@@ -16,6 +16,12 @@ export function YearlyTable({ rows }: { rows: YearRow[] }) {
               <th className="py-1.5 text-right font-normal">Value</th>
               <th className="py-1.5 text-right font-normal">P/L</th>
               <th className="py-1.5 text-right font-normal">ROI</th>
+              <th
+                className="py-1.5 text-right font-normal"
+                title="Annualized return on capital invested in this year — CAGR derived from the dollar-weighted average days each buy has been held."
+              >
+                Annual ROI
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -52,6 +58,17 @@ export function YearlyTable({ rows }: { rows: YearRow[] }) {
                     className={`py-1.5 text-right font-mono ${r.roi >= 0 ? "text-up" : "text-down"}`}
                   >
                     {formatPct(r.roi)}
+                  </td>
+                  <td
+                    className={`py-1.5 text-right font-mono ${
+                      r.annualizedRoi == null
+                        ? "text-faint"
+                        : r.annualizedRoi >= 0
+                          ? "text-up"
+                          : "text-down"
+                    }`}
+                  >
+                    {r.annualizedRoi == null ? "—" : formatPct(r.annualizedRoi)}
                   </td>
                 </tr>
               );

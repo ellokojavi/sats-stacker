@@ -81,6 +81,13 @@ export interface YearRow {
   currentValue: number;
   profit: number;
   roi: number;
+  /**
+   * CAGR for this year's buys, computed against the dollar-weighted average
+   * days held. Null when the bucket is too recent (< 30 days held on average)
+   * for annualization to be meaningful — early-year buys have wild
+   * extrapolations.
+   */
+  annualizedRoi: number | null;
 }
 
 export interface TierRow {
