@@ -50,18 +50,18 @@ export function TopBar({
         </button>
       </div>
 
-      <div className="ml-auto flex items-center gap-3">
+      <a
+        href="https://www.coingecko.com/en/coins/bitcoin"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open Bitcoin on CoinGecko"
+        className="ml-auto flex items-center gap-3 hover:opacity-80"
+      >
         <span className="text-[13px] text-ink">
           BTC{" "}
           <span className="font-mono font-medium">{formatUsd(price)}</span>
         </span>
-        <a
-          href="/price"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Open the live BTC price"
-          className="flex items-center gap-1.5 text-[11px] text-faint hover:text-ink"
-        >
+        <span className="flex items-center gap-1.5 text-[11px] text-faint">
           <span className="relative flex h-2 w-2">
             {live && (
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-up opacity-75" />
@@ -73,8 +73,8 @@ export function TopBar({
             />
           </span>
           {live ? "live price" : `as of ${formatDate(asOf)}`}
-        </a>
-      </div>
+        </span>
+      </a>
     </header>
   );
 }
