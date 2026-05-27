@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Area,
   CartesianGrid,
@@ -120,20 +120,42 @@ export function HoldingsChart({ data }: { data: HoldingsPoint[] }) {
     [visibleRangeMs],
   );
 
+  // Clickable legend state — each curve and its corresponding Y axis can be
+  // toggled. The axes only mount when their series is visible, so an empty
+  // chart genuinely empties out instead of leaving orphan ticks behind.
+  const [showPortfolio, setShowPortfolio] = useState(true);
+  const [showBtcPrice, setShowBtcPrice] = useState(true);
+
   return (
     <div className="rounded-xl border border-edge bg-panel p-4">
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
         <span className="text-[13px] font-medium text-ink">
           HODLings value over time
         </span>
-        <span className="flex items-center gap-1.5 text-[11px] text-muted">
+        <button
+          type="button"
+          onClick={() => setShowPortfolio((v) => !v)}
+          aria-pressed={showPortfolio}
+          title={showPortfolio ? "Hide portfolio value" : "Show portfolio value"}
+          className={`flex items-center gap-1.5 text-[11px] transition-opacity ${
+            showPortfolio ? "text-muted hover:text-ink" : "text-faint opacity-60 hover:opacity-100"
+          }`}
+        >
           <span className="inline-block h-[3px] w-3.5 bg-up" />
           portfolio value
-        </span>
-        <span className="flex items-center gap-1.5 text-[11px] text-muted">
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowBtcPrice((v) => !v)}
+          aria-pressed={showBtcPrice}
+          title={showBtcPrice ? "Hide BTC price" : "Show BTC price"}
+          className={`flex items-center gap-1.5 text-[11px] transition-opacity ${
+            showBtcPrice ? "text-muted hover:text-ink" : "text-faint opacity-60 hover:opacity-100"
+          }`}
+        >
           <span className="inline-block h-0 w-3.5 border-t-2 border-dashed border-bitcoin" />
           BTC price
-        </span>
+        </button>
       </div>
       <DateRangeControls
         presets={BACKWARD_PRESETS}
@@ -163,55 +185,68 @@ export function HoldingsChart({ data }: { data: HoldingsPoint[] }) {
               tick={{ fill: "#8a8f99", fontSize: 11 }}
               stroke="#232830"
             />
-            <YAxis
-              yAxisId="left"
-              tickFormatter={formatUsdShort}
-              tick={{ fill: "#8a8f99", fontSize: 11 }}
-              stroke="#232830"
-              width={54}
-            />
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              tickFormatter={formatUsdShort}
-              tick={{ fill: "#f7931a", fontSize: 11 }}
-              stroke="#232830"
-              width={54}
-            />
-            <Tooltip content={<ChartTooltip />} />
-            <Area
-              yAxisId="left"
-              type="monotone"
-              dataKey="portfolioValue"
-              name="Portfolio value"
-              stroke="#16c784"
-              strokeWidth={2}
-              fill="#16c784"
-              fillOpacity={0.15}
-              isAnimationActive={false}
-            />
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey="btcPrice"
-              name="BTC price"
-              stroke="#f7931a"
-              strokeWidth={1.6}
-              strokeDasharray="4 3"
-              dot={false}
-              isAnimationActive={false}
-            />
-            {zoom.dragStart != null && zoom.dragEnd != null && (
-              <ReferenceArea
+            {showPortfolio && (
+              <YAxis
                 yAxisId="left"
-                x1={zoom.dragStart as string}
-                x2={zoom.dragEnd as string}
-                stroke="#f7931a"
-                strokeOpacity={0.4}
-                fill="#f7931a"
-                fillOpacity={0.08}
+                tickFormatter={formatUsdShort}
+                tick={{ fill: "#8a8f99", fontSize: 11 }}
+                stroke="#232830"
+                width={54}
               />
             )}
+            {showBtcPrice && (
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                tickFormatter={formatUsdShort}
+                tick={{ fill: "#f7931a", fontSize: 11 }}
+                stroke="#232830"
+                width={54}
+              />
+            )}
+            <Tooltip content={<ChartTooltip />} />
+            {showPortfolio && (
+              <Area
+                yAxisId="left"
+                type="monotone"
+                dataKey="portfolioValue"
+                name="Portfolio value"
+                stroke="#16c784"
+                strokeWidth={2}
+                fill="#16c784"
+                fillOpacity={0.15}
+                isAnimationActive={false}
+              />
+            )}
+            {showBtcPrice && (
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="btcPrice"
+                name="BTC price"
+                stroke="#f7931a"
+                strokeWidth={1.6}
+                strokeDasharray="4 3"
+                dot={false}
+                isAnimationActive={false}
+              />
+            )}
+            {/* Anchor the drag-zoom rectangle to whichever Y axis is mounted —
+                referencing "left" when the portfolio area is hidden would
+                produce an unresolved yAxisId warning from recharts. */}
+            {zoom.dragStart != null &&
+              zoom.dragEnd != null &&
+              (showPortfolio || showBtcPrice) && (
+                <ReferenceArea
+                  yAxisId={showPortfolio ? "left" : "right"}
+                  x1={zoom.dragStart as string}
+                  x2={zoom.dragEnd as string}
+                  stroke="#f7931a"
+                  strokeOpacity={0.4}
+                  fill="#f7931a"
+                  fillOpacity={0.08}
+                />
+              )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
