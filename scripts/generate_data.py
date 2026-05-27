@@ -26,15 +26,97 @@ import json
 import math
 import os
 import random
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 
 SEED = 42
 
 # ---------------------------------------------------------------------------
-# Monthly BTC price anchors (USD, approximate).
-# These only shape a realistic-looking price curve. Bitcoin's market price is
-# public information - nothing here is private. Values are rounded/approximate.
+# Real BTC price history is fetched from CryptoCompare's free public API at
+# script run-time. The ledger and the chart both derive from the same series,
+# so BTC Price columns in each exchange CSV agree exactly with the chart.
+#
+# If the fetch fails (offline run, API rate-limit, etc.) the script falls back
+# to the monthly anchors below, log-interpolated with a touch of daily noise.
+# Bitcoin's market price is public information — nothing here is private.
 # ---------------------------------------------------------------------------
+
+CRYPTOCOMPARE_URL = (
+    "https://min-api.cryptocompare.com/data/v2/histoday"
+    "?fsym=BTC&tsym=USD&limit={limit}&toTs={to_ts}"
+)
+PRICE_START = datetime(2011, 1, 1, tzinfo=timezone.utc)
+PRICE_END = datetime(2026, 5, 20, tzinfo=timezone.utc)
+
+
+def fetch_real_prices():
+    """Return {date_str: price} for every available daily close, or None on failure.
+
+    Paginates backward from today in 2000-day chunks (CryptoCompare's limit) until
+    the earliest result reaches PRICE_START. Filters out zero-close padding rows
+    the API returns for dates before BTC was traded on any tracked exchange.
+    """
+    by_date = {}
+    to_ts = int(datetime.now(timezone.utc).timestamp())
+    target_start = int(PRICE_START.timestamp())
+    for _ in range(6):
+        url = CRYPTOCOMPARE_URL.format(limit=2000, to_ts=to_ts)
+        try:
+            with urllib.request.urlopen(url, timeout=20) as r:
+                data = json.load(r)
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            return None
+        pts = data.get("Data", {}).get("Data", [])
+        pts = [p for p in pts if p.get("close", 0) > 0]
+        if not pts:
+            break
+        for p in pts:
+            d = datetime.fromtimestamp(p["time"], tz=timezone.utc).strftime("%Y-%m-%d")
+            by_date[d] = round(float(p["close"]), 2)
+        earliest = pts[0]["time"]
+        if earliest <= target_start:
+            break
+        to_ts = earliest - 86400
+    return by_date if by_date else None
+
+
+def _interp_price(date_str: str, by_date: dict) -> float:
+    """Linear-interpolate between the nearest known daily closes if the exact
+    date isn't in the table — covers dates between fetched samples and the gap
+    between PRICE_END and the API's most recent point.
+    """
+    if date_str in by_date:
+        return by_date[date_str]
+    target = datetime.fromisoformat(date_str).date()
+    # Find nearest before/after by walking sorted keys (called rarely, so a
+    # one-time sort is cheap enough).
+    keys = sorted(by_date.keys())
+    before = after = None
+    for k in keys:
+        if k <= date_str:
+            before = k
+        else:
+            after = k
+            break
+    if before is None:
+        return by_date[after]
+    if after is None:
+        return by_date[before]
+    d0 = datetime.fromisoformat(before).date()
+    d1 = datetime.fromisoformat(after).date()
+    p0 = by_date[before]
+    p1 = by_date[after]
+    span = (d1 - d0).days
+    if span <= 0:
+        return p0
+    frac = (target - d0).days / span
+    return math.exp(math.log(p0) + frac * (math.log(p1) - math.log(p0)))
+
+
+# Populated in main() — None means "fetch failed, use the ANCHORS fallback".
+REAL_PRICES = None
+
 ANCHORS = [
     (2011, 1, 0.30), (2011, 2, 1.10), (2011, 3, 0.85), (2011, 4, 1.80),
     (2011, 5, 8.50), (2011, 6, 15.00), (2011, 7, 13.50), (2011, 8, 9.50),
@@ -92,7 +174,17 @@ ANCHOR_POINTS = [
 
 
 def price_on(when: datetime) -> float:
-    """Log-interpolate the anchor curve and add stable per-day noise."""
+    """BTC closing price on `when`.
+
+    Primary path: look up the real daily close in REAL_PRICES (fetched from
+    CryptoCompare in main()). If the exact date is missing — or REAL_PRICES is
+    None because the API was unreachable — fall back to the log-interpolated
+    ANCHORS curve with a touch of stable per-day noise so offline runs still
+    produce something realistic-looking.
+    """
+    if REAL_PRICES is not None:
+        return _interp_price(when.strftime("%Y-%m-%d"), REAL_PRICES)
+
     if when <= ANCHOR_POINTS[0][0]:
         base = ANCHOR_POINTS[0][1]
     elif when >= ANCHOR_POINTS[-1][0]:
@@ -305,12 +397,22 @@ def write_swan(events, data_dir):
 
 def write_price_history(data_dir):
     history = []
-    cursor = datetime(2011, 1, 1, tzinfo=timezone.utc)
-    history_end = datetime(2026, 5, 20, tzinfo=timezone.utc)
+    cursor = PRICE_START
+    # When real prices are available, anchor the right edge to the latest fetched
+    # date so the chart reflects today's actual close rather than a stale value.
+    if REAL_PRICES is not None:
+        latest = max(REAL_PRICES.keys())
+        history_end = datetime.fromisoformat(latest).replace(tzinfo=timezone.utc)
+    else:
+        history_end = PRICE_END
+    # Daily grain — Bitcoin trades 24/7, so there are no weekend gaps to skip.
+    # The file grows ~7× vs. weekly but recharts handles ~6k points comfortably,
+    # and the finer grain pays off when users zoom into a 1-week or 1-month
+    # window.
     while cursor <= history_end:
         history.append({"date": cursor.strftime("%Y-%m-%d"),
                         "price": round(price_on(cursor), 2)})
-        cursor += timedelta(days=7)
+        cursor += timedelta(days=1)
     path = os.path.join(data_dir, "btc_price_history.json")
     with open(path, "w") as fh:
         json.dump(history, fh, indent=0)
@@ -318,7 +420,15 @@ def write_price_history(data_dir):
 
 
 def main():
+    global REAL_PRICES
     random.seed(SEED)
+    print("Fetching real BTC price history from CryptoCompare…")
+    REAL_PRICES = fetch_real_prices()
+    if REAL_PRICES is None:
+        print("  fetch failed — falling back to synthetic ANCHORS curve.")
+    else:
+        print(f"  got {len(REAL_PRICES)} daily closes "
+              f"(earliest {min(REAL_PRICES)}, latest {max(REAL_PRICES)}).")
     events = {"Strike": [], "Coinbase": [], "CashApp": [], "Swan": []}
 
     def buy(exchange, when, usd, fee):

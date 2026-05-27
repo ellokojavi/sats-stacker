@@ -2,10 +2,10 @@ Swan Bitcoin - synthetic sample export - not real data
 Phone: 000-000-0000
 Event,Date,Timezone,Status,Transaction ID,Total USD,Transaction USD,Fee USD,Unit Count,Asset Type,BTC Price,Address Label,USD Cost Basis,Acquisition Date
 deposit,2023-11-17 15:29:30+00,UTC,settled,,504.95,,4.95,,USD,,,,
-purchase,2023-11-17 15:30:00+00,UTC,settled,c36fd56e-c24a-60ff-0252-525c6a3bdf21,500.00,500.00,,0.01214415,BTC,41172.10,,,
+purchase,2023-11-17 15:30:00+00,UTC,settled,c36fd56e-c24a-60ff-0252-525c6a3bdf21,500.00,500.00,,0.01365139,BTC,36626.32,,,
 deposit,2023-11-19 15:25:30+00,UTC,settled,,504.95,,4.95,,USD,,,,
-purchase,2023-11-19 15:26:00+00,UTC,settled,5c55a366-ad49-97f5-5803-5b4118751253,500.00,500.00,,0.01228162,BTC,40711.25,,,
+purchase,2023-11-19 15:26:00+00,UTC,settled,5c55a366-ad49-97f5-5803-5b4118751253,500.00,500.00,,0.01337305,BTC,37388.64,,,
 deposit,2023-11-21 06:05:30+00,UTC,settled,,504.95,,4.95,,USD,,,,
-purchase,2023-11-21 06:06:00+00,UTC,settled,49fcdde6-063f-5816-fb26-fd8393cf39a2,500.00,500.00,,0.01206042,BTC,41457.93,,,
+purchase,2023-11-21 06:06:00+00,UTC,settled,49fcdde6-063f-5816-fb26-fd8393cf39a2,500.00,500.00,,0.01398260,BTC,35758.72,,,
 deposit,2023-11-28 04:41:30+00,UTC,settled,,504.95,,4.95,,USD,,,,
-purchase,2023-11-28 04:42:00+00,UTC,settled,408db7a2-81bc-9b68-131e-b5ef54afa145,500.00,500.00,,0.01156525,BTC,43232.98,,,
+purchase,2023-11-28 04:42:00+00,UTC,settled,408db7a2-81bc-9b68-131e-b5ef54afa145,500.00,500.00,,0.01321471,BTC,37836.63,,,
