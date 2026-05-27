@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
@@ -12,11 +13,21 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { PowerLawResult, FuturePoint } from "@/lib/powerlaw";
+import type { PowerLawPoint, PowerLawResult } from "@/lib/powerlaw";
 import type { Snapshot } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
 import { Panel } from "./Panel";
 import { MetricCard } from "./MetricCard";
+import { DateRangeControls } from "./charts/DateRangeControls";
+import { useChartZoom } from "./charts/useChartZoom";
+import {
+  BACKWARD_PRESETS,
+  FORWARD_PRESETS,
+  backwardWindowDays,
+  forwardWindowDays,
+  type BackwardPresetId,
+  type ForwardPresetId,
+} from "./charts/dateRangePresets";
 
 const GENESIS_MS = Date.UTC(2009, 0, 3);
 const DAY_MS = 86400000;
@@ -29,13 +40,87 @@ function priceTick(v: number): string {
   return "$" + v;
 }
 
+/**
+ * Build a tick array for a days-since-genesis axis covering [lo, hi]. Adapts
+ * tick granularity to range length so the axis stays readable at any zoom:
+ * year ticks when zoomed out, month ticks in the middle, week-ish ticks deep.
+ */
+function daysToTicks(loDays: number, hiDays: number): number[] {
+  const range = hiDays - loDays;
+  const ticks: number[] = [];
+  if (range > 730) {
+    const startYear = new Date(GENESIS_MS + loDays * DAY_MS).getUTCFullYear();
+    const endYear = new Date(GENESIS_MS + hiDays * DAY_MS).getUTCFullYear();
+    const step = range > 10 * 365 ? 2 : 1;
+    for (let y = startYear; y <= endYear + 1; y += step) {
+      const days = (Date.UTC(y, 0, 1) - GENESIS_MS) / DAY_MS;
+      if (days >= loDays && days <= hiDays) ticks.push(Math.max(1, days));
+    }
+  } else if (range > 90) {
+    const d = new Date(GENESIS_MS + loDays * DAY_MS);
+    let y = d.getUTCFullYear();
+    let m = d.getUTCMonth();
+    const step = range > 365 ? 2 : 1;
+    while (true) {
+      const days = (Date.UTC(y, m, 1) - GENESIS_MS) / DAY_MS;
+      if (days > hiDays) break;
+      if (days >= loDays) ticks.push(Math.max(1, days));
+      m += step;
+      while (m > 11) {
+        m -= 12;
+        y += 1;
+      }
+    }
+  } else {
+    for (let dd = loDays; dd <= hiDays; dd += 7) ticks.push(Math.max(1, dd));
+  }
+  return ticks.length > 0 ? ticks : [Math.max(1, loDays), Math.max(2, hiDays)];
+}
+
+function daysTickFormatter(
+  loDays: number,
+  hiDays: number,
+): (d: number) => string {
+  const range = hiDays - loDays;
+  if (range > 730) {
+    return (d) => String(new Date(GENESIS_MS + d * DAY_MS).getUTCFullYear());
+  }
+  if (range > 90) {
+    return (d) => {
+      const dt = new Date(GENESIS_MS + d * DAY_MS);
+      return dt.toLocaleString("default", {
+        month: "short",
+        year: "2-digit",
+        timeZone: "UTC",
+      });
+    };
+  }
+  return (d) => {
+    const dt = new Date(GENESIS_MS + d * DAY_MS);
+    return dt.toLocaleString("default", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  };
+}
+
 function PowerLawTooltip({ active, payload }: any) {
   if (!active || !payload || payload.length === 0) return null;
   const p = payload[0].payload;
-  const year = new Date(GENESIS_MS + p.days * DAY_MS).getUTCFullYear();
+  // With daily price data, show the exact date the cursor is on rather than
+  // just the year — otherwise zooming in to a single quarter makes every point
+  // read "~2026" and there's no way to tell March from May.
+  const d = new Date(GENESIS_MS + p.days * DAY_MS);
+  const label = d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
   return (
     <div className="rounded-md border border-edge bg-night px-3 py-2 text-[11px]">
-      <div className="text-faint">~{year}</div>
+      <div className="text-faint">{label}</div>
       <div className="text-bitcoin">Price: {formatUsd(p.price)}</div>
       <div className="text-muted">Model: {formatUsd(p.model)}</div>
     </div>
@@ -111,7 +196,7 @@ function HoldingsProjectionPanel({
   snapshot: Snapshot;
 }) {
   const { totalBtc, totalInvested, currentValue } = snapshot;
-  const { futurePoints, projections, nowDays, currentPrice, sigma, intercept, beta } = data;
+  const { futurePoints, projections, nowDays, sigma, intercept, beta } = data;
 
   // ── DCA state ──────────────────────────────────────────────────────────────
   const [dcaAmount, setDcaAmount] = useState<DcaAmount>(0);
@@ -151,7 +236,7 @@ function HoldingsProjectionPanel({
       }
     }
     return result;
-  }, [dcaAmount, futurePoints, nowDays, totalBtc, intercept, beta]);
+  }, [dcaAmount, futurePoints, nowDays, intercept, beta]);
 
   // Transform future price points → portfolio value points for the chart,
   // merging in the DCA overlay values when active.
@@ -169,29 +254,50 @@ function HoldingsProjectionPanel({
     [futurePoints, totalBtc, dcaAmount, dcaPortfolioValues],
   );
 
-  // Y-axis: span bear → max(bull, DCA). Build decade ticks.
-  const minVal = Math.min(...chartData.map((d) => d.bear));
-  const dcaMax =
-    dcaAmount > 0
-      ? Math.max(...dcaPortfolioValues.filter(Boolean))
-      : 0;
-  const maxVal = Math.max(Math.max(...chartData.map((d) => d.bull)), dcaMax);
+  // Full forward range for zoom — anchor left at today (nowDays), right at the
+  // last projection point. Both must be > 0 to keep the log axis well-defined.
+  const farthestDays = chartData[chartData.length - 1]?.days ?? nowDays + 15 * 365;
+  const fullRangeDays: [number, number] = [nowDays, farthestDays];
+
+  const zoom = useChartZoom({ fullRange: fullRangeDays });
+
+  const handlePreset = (id: string) => {
+    const window = forwardWindowDays(
+      id as ForwardPresetId,
+      nowDays,
+      farthestDays,
+    );
+    zoom.setDomain(window, id);
+  };
+
+  const [xLo, xHi] = zoom.domain ?? fullRangeDays;
+
+  // Visible projection slice — used both for Y-axis bounds and for drawing.
+  const visibleChartData = useMemo(
+    () => chartData.filter((d) => d.days >= xLo && d.days <= xHi),
+    [chartData, xLo, xHi],
+  );
+
+  // Y-axis: span bear → max(bull, DCA) of the **visible** window. Build decade
+  // ticks so the axis snaps to clean round-number lines.
+  const visibleValues = useMemo(() => {
+    const vals: number[] = [];
+    for (const d of visibleChartData) {
+      vals.push(d.bear, d.bull);
+      if (dcaAmount > 0 && d.dcaValue != null) vals.push(d.dcaValue);
+    }
+    return vals;
+  }, [visibleChartData, dcaAmount]);
+
+  const minVal = visibleValues.length > 0 ? Math.min(...visibleValues) : 1;
+  const maxVal = visibleValues.length > 0 ? Math.max(...visibleValues) : 10;
   const logMin = Math.floor(Math.log10(Math.max(minVal, 1)));
   const logMax = Math.ceil(Math.log10(maxVal));
   const yTicks: number[] = [];
-  for (let e = logMin; e <= logMax; e++) {
-    yTicks.push(Math.pow(10, e));
-  }
+  for (let e = logMin; e <= logMax; e++) yTicks.push(Math.pow(10, e));
 
-  // X-axis: years from nowDays to ~15 years out
-  const startYear = new Date(GENESIS_MS + nowDays * DAY_MS).getUTCFullYear();
-  const endYear = startYear + 15;
-  const yearTicks: number[] = [];
-  for (let y = startYear; y <= endYear; y += 2) {
-    yearTicks.push(
-      Math.max(1, (Date.UTC(y, 0, 1) - GENESIS_MS) / DAY_MS),
-    );
-  }
+  const xTicks = useMemo(() => daysToTicks(xLo, xHi), [xLo, xHi]);
+  const xFormatter = useMemo(() => daysTickFormatter(xLo, xHi), [xLo, xHi]);
 
   // Projection cards: show portfolio value for bear/base/bull
   const scenarios = [
@@ -264,22 +370,31 @@ function HoldingsProjectionPanel({
           ))}
         </div>
 
-        <div className="h-[320px] w-full">
+        <DateRangeControls
+          presets={FORWARD_PRESETS}
+          activePreset={zoom.activePreset}
+          onPreset={handlePreset}
+          onReset={zoom.reset}
+        />
+
+        <div className="h-[320px] w-full select-none" onDoubleClick={zoom.reset}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={chartData}
               margin={{ top: 6, right: 8, bottom: 0, left: 8 }}
+              onMouseDown={zoom.onMouseDown}
+              onMouseMove={zoom.onMouseMove}
+              onMouseUp={zoom.onMouseUp}
+              onMouseLeave={zoom.onMouseLeave}
             >
               <CartesianGrid stroke="#232830" strokeDasharray="3 3" />
               <XAxis
                 dataKey="days"
                 type="number"
                 scale="log"
-                domain={[chartData[0]?.days ?? nowDays, chartData[chartData.length - 1]?.days ?? nowDays + 15 * 365]}
-                ticks={yearTicks}
-                tickFormatter={(d: number) =>
-                  String(new Date(GENESIS_MS + d * DAY_MS).getUTCFullYear())
-                }
+                domain={[xLo, xHi]}
+                ticks={xTicks}
+                tickFormatter={xFormatter}
                 tick={{ fill: "#8a8f99", fontSize: 11 }}
                 stroke="#232830"
                 allowDataOverflow
@@ -359,16 +474,18 @@ function HoldingsProjectionPanel({
                 isAnimationActive={false}
               />
 
-              {/* Today dot */}
-              <ReferenceDot
-                x={nowDays}
-                y={currentValue}
-                r={4}
-                fill="#16c784"
-                stroke="#0d0f12"
-                strokeWidth={1.5}
-                isFront
-              />
+              {/* Today dot — only show if inside the visible window */}
+              {nowDays >= xLo && nowDays <= xHi && (
+                <ReferenceDot
+                  x={nowDays}
+                  y={currentValue}
+                  r={4}
+                  fill="#16c784"
+                  stroke="#0d0f12"
+                  strokeWidth={1.5}
+                  isFront
+                />
+              )}
 
               {/* DCA overlay — white solid line, drawn on top of scenarios */}
               {dcaAmount > 0 && (
@@ -380,6 +497,17 @@ function HoldingsProjectionPanel({
                   dot={false}
                   isAnimationActive={false}
                   connectNulls
+                />
+              )}
+
+              {zoom.dragStart != null && zoom.dragEnd != null && (
+                <ReferenceArea
+                  x1={zoom.dragStart as number}
+                  x2={zoom.dragEnd as number}
+                  stroke="#f7931a"
+                  strokeOpacity={0.4}
+                  fill="#f7931a"
+                  fillOpacity={0.08}
                 />
               )}
             </LineChart>
@@ -468,6 +596,9 @@ function HoldingsProjectionPanel({
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
+const FORECAST_YEARS = 5;
+const FORECAST_DAYS = FORECAST_YEARS * 365;
+
 export function PowerLawSection({
   data,
   snapshot,
@@ -476,8 +607,95 @@ export function PowerLawSection({
   snapshot?: Snapshot;
 }) {
   const aboveModel = data.multiplier >= 1;
-  const years = [2012, 2014, 2016, 2018, 2020, 2022, 2024, 2026];
-  const yearTicks = years.map((y) => (Date.UTC(y, 0, 1) - GENESIS_MS) / DAY_MS);
+
+  // When the user opts in, append model-only points from "today" out to
+  // +5Y so the dashed power-law line projects forward. The actual-price line
+  // has no `price` on these points, so it terminates at today automatically.
+  const [extendForecast, setExtendForecast] = useState(false);
+
+  const forecastPoints = useMemo<PowerLawPoint[]>(() => {
+    if (!extendForecast) return [];
+    const pts: PowerLawPoint[] = [];
+    // Weekly cadence keeps the projection light without affecting visual
+    // smoothness — the model is a straight line in log-log space.
+    const step = 7;
+    const startDay = Math.round(data.nowDays) + step;
+    const endDay = Math.round(data.nowDays + FORECAST_DAYS);
+    for (let d = startDay; d <= endDay; d += step) {
+      pts.push({
+        days: d,
+        model: Math.pow(10, data.intercept + data.beta * Math.log10(d)),
+      });
+    }
+    return pts;
+  }, [extendForecast, data.nowDays, data.intercept, data.beta]);
+
+  // Series passed to the chart — historical points unchanged when forecast is
+  // off; appended with model-only future points when on.
+  const chartPoints = useMemo(
+    () => (extendForecast ? [...data.points, ...forecastPoints] : data.points),
+    [data.points, forecastPoints, extendForecast],
+  );
+
+  // Full historical range in days-since-genesis. The right edge stretches
+  // when forecast is enabled so the "All" preset takes you all the way out
+  // to the projected horizon.
+  const fullRangeDays = useMemo<[number, number]>(() => {
+    if (data.points.length === 0) return [1, Math.max(data.nowDays, 2)];
+    const minDays = Math.max(1, data.points[0].days);
+    const historicalMax = Math.max(
+      data.nowDays,
+      data.points[data.points.length - 1].days,
+    );
+    const maxDays = extendForecast
+      ? data.nowDays + FORECAST_DAYS
+      : historicalMax;
+    return [minDays, maxDays];
+  }, [data.points, data.nowDays, extendForecast]);
+
+  const zoom = useChartZoom({ fullRange: fullRangeDays });
+
+  const handlePreset = (id: string) => {
+    const window = backwardWindowDays(
+      id as BackwardPresetId,
+      fullRangeDays[1],
+      fullRangeDays[0],
+    );
+    zoom.setDomain(window, id);
+  };
+
+  const [xLo, xHi] = zoom.domain ?? fullRangeDays;
+
+  // Filter visible points + derive Y bounds from them. With forecast on, the
+  // future model points are included in the visible set when the zoom range
+  // overlaps them, so the Y axis auto-expands to fit projected highs.
+  const visiblePoints = useMemo(
+    () => chartPoints.filter((p) => p.days >= xLo && p.days <= xHi),
+    [chartPoints, xLo, xHi],
+  );
+
+  const { yLo, yHi, yTicks } = useMemo(() => {
+    const vals: number[] = [];
+    for (const p of visiblePoints) {
+      if (p.price != null && p.price > 0) vals.push(p.price);
+      if (p.model > 0) vals.push(p.model);
+    }
+    if (vals.length === 0) {
+      return { yLo: 0.1, yHi: 1_000_000, yTicks: [0.1, 1, 10, 100, 1000, 10000, 100000, 1000000] };
+    }
+    const minV = Math.min(...vals);
+    const maxV = Math.max(...vals);
+    const lo = Math.pow(10, Math.floor(Math.log10(minV * 0.7)));
+    const hi = Math.pow(10, Math.ceil(Math.log10(maxV * 1.3)));
+    const ticks: number[] = [];
+    for (let e = Math.log10(lo); e <= Math.log10(hi) + 0.001; e++) {
+      ticks.push(Math.pow(10, e));
+    }
+    return { yLo: lo, yHi: hi, yTicks: ticks };
+  }, [visiblePoints]);
+
+  const xTicks = useMemo(() => daysToTicks(xLo, xHi), [xLo, xHi]);
+  const xFormatter = useMemo(() => daysTickFormatter(xLo, xHi), [xLo, xHi]);
 
   return (
     <div className="space-y-3">
@@ -518,22 +736,45 @@ export function PowerLawSection({
           </>
         }
       >
-        <div className="h-[320px] w-full">
+        <DateRangeControls
+          presets={BACKWARD_PRESETS}
+          activePreset={zoom.activePreset}
+          onPreset={handlePreset}
+          onReset={zoom.reset}
+          extras={
+            <button
+              type="button"
+              onClick={() => setExtendForecast((v) => !v)}
+              aria-pressed={extendForecast}
+              title="Extend the model line 5 years into the future"
+              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                extendForecast
+                  ? "bg-bitcoin text-night"
+                  : "bg-night text-muted hover:text-ink"
+              }`}
+            >
+              +5Y forecast
+            </button>
+          }
+        />
+        <div className="h-[320px] w-full select-none" onDoubleClick={zoom.reset}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
-              data={data.points}
+              data={chartPoints}
               margin={{ top: 6, right: 8, bottom: 0, left: 8 }}
+              onMouseDown={zoom.onMouseDown}
+              onMouseMove={zoom.onMouseMove}
+              onMouseUp={zoom.onMouseUp}
+              onMouseLeave={zoom.onMouseLeave}
             >
               <CartesianGrid stroke="#232830" strokeDasharray="3 3" />
               <XAxis
                 dataKey="days"
                 type="number"
                 scale="log"
-                domain={[600, 7000]}
-                ticks={yearTicks}
-                tickFormatter={(d: number) =>
-                  String(new Date(GENESIS_MS + d * DAY_MS).getUTCFullYear())
-                }
+                domain={[xLo, xHi]}
+                ticks={xTicks}
+                tickFormatter={xFormatter}
                 tick={{ fill: "#8a8f99", fontSize: 11 }}
                 stroke="#232830"
                 allowDataOverflow
@@ -541,8 +782,8 @@ export function PowerLawSection({
               <YAxis
                 type="number"
                 scale="log"
-                domain={[0.1, 1000000]}
-                ticks={[0.1, 1, 10, 100, 1000, 10000, 100000, 1000000]}
+                domain={[yLo, yHi]}
+                ticks={yTicks}
                 tickFormatter={priceTick}
                 tick={{ fill: "#8a8f99", fontSize: 11 }}
                 stroke="#232830"
@@ -567,15 +808,27 @@ export function PowerLawSection({
                 dot={false}
                 isAnimationActive={false}
               />
-              <ReferenceDot
-                x={data.nowDays}
-                y={data.currentPrice}
-                r={4}
-                fill="#16c784"
-                stroke="#0d0f12"
-                strokeWidth={1.5}
-                isFront
-              />
+              {data.nowDays >= xLo && data.nowDays <= xHi && (
+                <ReferenceDot
+                  x={data.nowDays}
+                  y={data.currentPrice}
+                  r={4}
+                  fill="#16c784"
+                  stroke="#0d0f12"
+                  strokeWidth={1.5}
+                  isFront
+                />
+              )}
+              {zoom.dragStart != null && zoom.dragEnd != null && (
+                <ReferenceArea
+                  x1={zoom.dragStart as number}
+                  x2={zoom.dragEnd as number}
+                  stroke="#f7931a"
+                  strokeOpacity={0.4}
+                  fill="#f7931a"
+                  fillOpacity={0.08}
+                />
+              )}
             </LineChart>
           </ResponsiveContainer>
         </div>

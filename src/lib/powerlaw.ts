@@ -11,7 +11,12 @@ const DAY_MS = 86400000;
 
 export interface PowerLawPoint {
   days: number;
-  price: number;
+  /**
+   * Actual closing price. Optional so the chart can stitch in model-only
+   * forecast points whose `price` is undefined — that breaks the orange
+   * actual-price line at "today" while the dashed model line keeps going.
+   */
+  price?: number;
   model: number;
 }
 
