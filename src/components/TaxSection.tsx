@@ -205,33 +205,45 @@ export function TaxSection({
             className="min-w-[140px] flex-1 accent-bitcoin"
             aria-label="BTC to sell"
           />
-          <div className="flex items-center gap-2 text-[12px] text-ink">
-            <input
-              type="number"
-              inputMode="decimal"
-              value={btcDraft}
-              onChange={(e) => handleBtcChange(e.target.value)}
-              onBlur={handleBtcBlur}
-              min={0}
-              max={totalBtc || undefined}
-              step={0.00000001}
-              aria-label="BTC to sell"
-              className="w-28 rounded border border-edge bg-night px-2 py-0.5 text-right font-mono tabular-nums text-ink focus:border-bitcoin focus:outline-none"
-            />
-            <span className="text-[11px] text-muted">BTC</span>
-            <span className="text-faint">·</span>
-            <span className="text-[11px] text-muted">$</span>
-            <input
-              type="number"
-              inputMode="decimal"
-              value={usdDraft}
-              onChange={(e) => handleUsdChange(e.target.value)}
-              onBlur={handleUsdBlur}
-              min={0}
-              step={1}
-              aria-label="USD proceeds"
-              className="w-28 rounded border border-edge bg-night px-2 py-0.5 text-right font-mono tabular-nums text-ink focus:border-bitcoin focus:outline-none"
-            />
+          <div className="flex items-center gap-2">
+            {/* BTC input — suffix label tucked inside the right edge */}
+            <div className="relative">
+              <input
+                type="number"
+                inputMode="decimal"
+                value={btcDraft}
+                onChange={(e) => handleBtcChange(e.target.value)}
+                onBlur={handleBtcBlur}
+                min={0}
+                max={totalBtc || undefined}
+                step={0.00000001}
+                aria-label="BTC to sell"
+                /* Tailwind arbitrary selectors kill the native spinner
+                   buttons that crowd the number; the `appearance:textfield`
+                   reset is Firefox's equivalent. */
+                className="w-36 rounded border border-edge bg-night py-1 pl-2.5 pr-10 text-right font-mono tabular-nums text-[12px] text-ink focus:border-bitcoin focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
+              />
+              <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[11px] text-faint">
+                BTC
+              </span>
+            </div>
+            {/* USD input — prefix "$" tucked inside the left edge */}
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-[11px] text-faint">
+                $
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={usdDraft}
+                onChange={(e) => handleUsdChange(e.target.value)}
+                onBlur={handleUsdBlur}
+                min={0}
+                step={1}
+                aria-label="USD proceeds"
+                className="w-32 rounded border border-edge bg-night py-1 pl-6 pr-2.5 text-right font-mono tabular-nums text-[12px] text-ink focus:border-bitcoin focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none"
+              />
+            </div>
           </div>
         </div>
 
