@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Lot } from "@/lib/types";
 import {
   simulateSale,
@@ -10,6 +10,21 @@ import {
 import { formatUsd, formatBtc, formatDateShort } from "@/lib/format";
 import { Panel } from "./Panel";
 import { MetricCard } from "./MetricCard";
+
+/**
+ * Canonical render of `n` as a BTC amount in an input: up to 8 decimals
+ * (sat-level), trailing zeros stripped so "0.5" doesn't appear as "0.50000000".
+ */
+function btcInputValue(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  return n.toFixed(8).replace(/\.?0+$/, "") || "0";
+}
+
+/** Canonical render of `n` as a USD amount in an input — whole dollars. */
+function usdInputValue(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  return Math.round(n).toString();
+}
 
 const METHODS: CostBasisMethod[] = ["FIFO", "LIFO", "HIFO"];
 
@@ -39,6 +54,69 @@ export function TaxSection({
     () => Math.round(totalBtc * 0.25 * 1e8) / 1e8,
   );
   const effectiveSell = Math.min(sellBtc, totalBtc);
+
+  // ── Editable BTC / USD inputs ────────────────────────────────────────────
+  //
+  // The slider gives a quick rough cut. The two inputs below let the user be
+  // exact — type a specific BTC amount or a specific USD proceeds number. All
+  // three controls drive the same `sellBtc` state through `currentPrice`.
+  //
+  // We keep draft strings for each input so intermediate typing states like
+  // "0." or "" don't get reformatted out from under the user. The skip-next
+  // ref is the canonical React pattern for breaking the feedback loop between
+  // an onChange that sets shared state and a useEffect that mirrors that
+  // shared state back into the input.
+  const [btcDraft, setBtcDraft] = useState(() => btcInputValue(effectiveSell));
+  const [usdDraft, setUsdDraft] = useState(() =>
+    usdInputValue(effectiveSell * currentPrice),
+  );
+  const skipNextSync = useRef(false);
+
+  // Mirror external changes to sellBtc (slider drag, ledger / price refresh)
+  // back into the inputs — unless we set sellBtc from a typing event ourselves,
+  // in which case the input drafts are already the source of truth.
+  useEffect(() => {
+    if (skipNextSync.current) {
+      skipNextSync.current = false;
+      return;
+    }
+    setBtcDraft(btcInputValue(effectiveSell));
+    setUsdDraft(usdInputValue(effectiveSell * currentPrice));
+  }, [effectiveSell, currentPrice]);
+
+  const commitBtc = (rawBtc: number) => {
+    const clamped = Math.max(0, Math.min(rawBtc, totalBtc));
+    skipNextSync.current = true;
+    setSellBtc(clamped);
+    setUsdDraft(usdInputValue(clamped * currentPrice));
+  };
+
+  const commitUsd = (rawUsd: number) => {
+    if (currentPrice <= 0) return;
+    const btc = rawUsd / currentPrice;
+    const clamped = Math.max(0, Math.min(btc, totalBtc));
+    skipNextSync.current = true;
+    setSellBtc(clamped);
+    setBtcDraft(btcInputValue(clamped));
+  };
+
+  const handleBtcChange = (s: string) => {
+    setBtcDraft(s);
+    if (s === "") return; // tolerate empty while typing; blur will snap back
+    const n = Number(s);
+    if (Number.isFinite(n) && n >= 0) commitBtc(n);
+  };
+
+  const handleUsdChange = (s: string) => {
+    setUsdDraft(s);
+    if (s === "") return;
+    const n = Number(s);
+    if (Number.isFinite(n) && n >= 0) commitUsd(n);
+  };
+
+  const handleBtcBlur = () => setBtcDraft(btcInputValue(effectiveSell));
+  const handleUsdBlur = () =>
+    setUsdDraft(usdInputValue(effectiveSell * currentPrice));
 
   const result = useMemo(
     () => simulateSale(lots, effectiveSell, currentPrice, method),
@@ -115,7 +193,7 @@ export function TaxSection({
           <span className="text-[11px] text-muted">{METHOD_NOTE[method]}</span>
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <span className="text-[11px] text-muted">Sell</span>
           <input
             type="range"
@@ -124,12 +202,37 @@ export function TaxSection({
             step={totalBtc > 0 ? totalBtc / 200 : 0.01}
             value={effectiveSell}
             onChange={(e) => setSellBtc(Number(e.target.value))}
-            className="flex-1 accent-bitcoin"
+            className="min-w-[140px] flex-1 accent-bitcoin"
             aria-label="BTC to sell"
           />
-          <span className="w-44 text-right font-mono text-[12px] text-ink">
-            {effectiveSell.toFixed(4)} BTC · {formatUsd(result.proceeds)}
-          </span>
+          <div className="flex items-center gap-2 text-[12px] text-ink">
+            <input
+              type="number"
+              inputMode="decimal"
+              value={btcDraft}
+              onChange={(e) => handleBtcChange(e.target.value)}
+              onBlur={handleBtcBlur}
+              min={0}
+              max={totalBtc || undefined}
+              step={0.00000001}
+              aria-label="BTC to sell"
+              className="w-28 rounded border border-edge bg-night px-2 py-0.5 text-right font-mono tabular-nums text-ink focus:border-bitcoin focus:outline-none"
+            />
+            <span className="text-[11px] text-muted">BTC</span>
+            <span className="text-faint">·</span>
+            <span className="text-[11px] text-muted">$</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={usdDraft}
+              onChange={(e) => handleUsdChange(e.target.value)}
+              onBlur={handleUsdBlur}
+              min={0}
+              step={1}
+              aria-label="USD proceeds"
+              className="w-28 rounded border border-edge bg-night px-2 py-0.5 text-right font-mono tabular-nums text-ink focus:border-bitcoin focus:outline-none"
+            />
+          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
