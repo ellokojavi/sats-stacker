@@ -343,7 +343,12 @@ function HoldingsProjectionPanel({
                 : totalBtc.toFixed(4) + " BTC" },
             { label: "Current value", value: priceTick(currentValue) },
             { label: "Cost basis", value: priceTick(totalInvested) },
-            { label: "Model today", value: priceTick(data.modelPriceNow) + " / BTC" },
+            // Live market price first so the comparison with the model below
+            // is immediate — the model fair-value is a regression projection,
+            // not a quote, and pairing them defuses the "wait, BTC is $122K?"
+            // misread.
+            { label: "Live BTC price", value: priceTick(data.currentPrice) + " / BTC" },
+            { label: "Power-law fair value", value: priceTick(data.modelPriceNow) + " / BTC" },
           ].map(({ label, value }) => (
             <div key={label} className="rounded bg-night px-3 py-1.5 text-[11px]">
               <span className="text-faint">{label}: </span>
