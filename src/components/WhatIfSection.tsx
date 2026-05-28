@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -197,6 +197,37 @@ export function WhatIfSection({
     return [...results].sort((a, b) => b.finalValue - a.finalValue);
   }, [results]);
 
+  // ── Per-strategy info popover. Click the (i) icon to open; click outside
+  //    or press Escape to close. Single-open at a time keeps the table calm.
+  const [openInfo, setOpenInfo] = useState<StrategyId | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (openInfo === null) return;
+    const handlePointer = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (popoverRef.current && target && popoverRef.current.contains(target)) {
+        return; // click inside the popover — keep it open
+      }
+      // Clicks on the toggle button itself are handled by the button's onClick
+      // (which closes if it's the same id), so a global pointer-outside is
+      // enough for everything else.
+      const btn = (e.target as HTMLElement | null)?.closest?.(
+        "[data-strategy-info-toggle]",
+      );
+      if (btn) return;
+      setOpenInfo(null);
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenInfo(null);
+    };
+    document.addEventListener("mousedown", handlePointer);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handlePointer);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [openInfo]);
+
   return (
     <div className="space-y-3">
       <p className="text-[11px] leading-relaxed text-faint">
@@ -337,7 +368,7 @@ export function WhatIfSection({
                       {idx + 1}
                     </td>
                     <td className="py-1.5 text-left">
-                      <span className="flex items-center gap-1.5">
+                      <span className="relative flex items-center gap-1.5">
                         <span
                           className="inline-block h-[3px] w-3.5"
                           style={{ backgroundColor: meta.color }}
@@ -347,6 +378,50 @@ export function WhatIfSection({
                           <span className="rounded bg-bitcoin/20 px-1.5 py-0.5 text-[10px] text-bitcoin">
                             you
                           </span>
+                        )}
+                        <button
+                          type="button"
+                          data-strategy-info-toggle
+                          onClick={() =>
+                            setOpenInfo((cur) =>
+                              cur === r.strategyId ? null : r.strategyId,
+                            )
+                          }
+                          aria-expanded={openInfo === r.strategyId}
+                          aria-label={`About ${meta.label}`}
+                          className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-faint hover:text-bitcoin focus:text-bitcoin focus:outline-none"
+                        >
+                          {/* Info icon — kept inline so we don't pull in a
+                              dependency just for one glyph */}
+                          <svg
+                            viewBox="0 0 16 16"
+                            width="14"
+                            height="14"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
+                            <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.5a5 5 0 1 1 0 10A5 5 0 0 1 8 3Zm0 2.25a.95.95 0 1 1 0 1.9.95.95 0 0 1 0-1.9ZM7.25 7.5h1.5a.5.5 0 0 1 .5.5v3.5a.5.5 0 0 1-1 0V8.5h-.5a.5.5 0 0 1 0-1Z" />
+                          </svg>
+                        </button>
+                        {openInfo === r.strategyId && (
+                          <div
+                            ref={popoverRef}
+                            role="dialog"
+                            aria-label={`${meta.label} explanation`}
+                            className="absolute left-0 top-6 z-20 w-72 rounded-md border border-edge bg-night px-3 py-2 text-[11px] leading-relaxed text-ink shadow-lg"
+                          >
+                            <div
+                              className="mb-1 flex items-center gap-1.5 font-medium"
+                              style={{ color: meta.color }}
+                            >
+                              <span
+                                className="inline-block h-[3px] w-3.5"
+                                style={{ backgroundColor: meta.color }}
+                              />
+                              {meta.label}
+                            </div>
+                            <p className="text-muted">{meta.description}</p>
+                          </div>
                         )}
                       </span>
                     </td>
