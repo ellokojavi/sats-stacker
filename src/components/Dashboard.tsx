@@ -32,12 +32,20 @@ import { HallOfFame } from "./HallOfFame";
 import { TransactionsTable } from "./TransactionsTable";
 import { PowerLawSection } from "./PowerLawSection";
 import { TaxSection } from "./TaxSection";
+import { WhatIfSection } from "./WhatIfSection";
 
-type TabId = "overview" | "performance" | "powerlaw" | "tax" | "ledger";
+type TabId =
+  | "overview"
+  | "performance"
+  | "whatif"
+  | "powerlaw"
+  | "tax"
+  | "ledger";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "performance", label: "Performance" },
+  { id: "whatif", label: "What if?" },
   { id: "powerlaw", label: "Power Law" },
   { id: "tax", label: "Tax" },
   { id: "ledger", label: "Ledger" },
@@ -210,6 +218,14 @@ export function Dashboard({
                 <CapitalEfficiency cagr={cagr} />
                 <HallOfFame lots={lots} />
               </div>
+            )}
+            {tab === "whatif" && (
+              <WhatIfSection
+                txns={txns}
+                prices={priceHistory}
+                currentPrice={price}
+                asOf={bundled.date}
+              />
             )}
             {tab === "powerlaw" && (
               <PowerLawSection data={powerLaw} snapshot={snapshot} />
