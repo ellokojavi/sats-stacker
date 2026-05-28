@@ -19,7 +19,6 @@ import {
   saveMode,
 } from "@/lib/importStore";
 import { TopBar } from "./TopBar";
-import { ImportDropzone } from "./ImportDropzone";
 import { RealModeEmptyState } from "./RealModeEmptyState";
 import { SnapshotGrid } from "./SnapshotGrid";
 import { HoldingsChart } from "./HoldingsChart";
@@ -33,6 +32,7 @@ import { TransactionsTable } from "./TransactionsTable";
 import { PowerLawSection } from "./PowerLawSection";
 import { TaxSection } from "./TaxSection";
 import { WhatIfSection } from "./WhatIfSection";
+import { SettingsSection } from "./SettingsSection";
 
 type TabId =
   | "overview"
@@ -40,7 +40,8 @@ type TabId =
   | "whatif"
   | "powerlaw"
   | "tax"
-  | "ledger";
+  | "ledger"
+  | "settings";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -49,6 +50,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "powerlaw", label: "Power Law" },
   { id: "tax", label: "Tax" },
   { id: "ledger", label: "Ledger" },
+  { id: "settings", label: "Settings" },
 ];
 
 const COINGECKO_URL =
@@ -68,7 +70,6 @@ export function Dashboard({
 }) {
   const [mode, setMode] = useState<ViewMode>(privateLedger ? "real" : "demo");
   const [imported, setImported] = useState<EtlResult | null>(null);
-  const [showReplace, setShowReplace] = useState(false);
   const [tab, setTab] = useState<TabId>("overview");
 
   useEffect(() => {
@@ -152,16 +153,50 @@ export function Dashboard({
     saveImportedLedger(result);
     setMode("real");
     saveMode("real");
-    setShowReplace(false);
+    // Drop the user onto the Settings tab right after import so the import
+    // summary is the first thing they see — proves what was loaded, from
+    // where, and over what timeframe.
+    setTab("settings");
   }
   function handleClear() {
     setImported(null);
     clearImportedLedger();
-    setShowReplace(false);
     if (!privateLedger) {
       setMode("demo");
       saveMode("demo");
     }
+  }
+  /**
+   * Drop a single unrecognized file row from the imported ledger's stats.
+   * Doesn't touch transactions — unrecognized files contributed none — so we
+   * only need to update the bookkeeping and re-save.
+   */
+  function handleRemoveImportedFile(index: number) {
+    if (!imported) return;
+    const file = imported.stats.files[index];
+    if (!file || file.recognized) return;
+    const nextFiles = imported.stats.files.filter((_, i) => i !== index);
+    const nextStats = {
+      ...imported.stats,
+      files: nextFiles,
+      filesSkipped: Math.max(0, imported.stats.filesSkipped - 1),
+    };
+    const next = { ...imported, stats: nextStats };
+    setImported(next);
+    saveImportedLedger(next);
+  }
+  function handleClearImportedUnrecognized() {
+    if (!imported) return;
+    const recognized = imported.stats.files.filter((f) => f.recognized);
+    if (recognized.length === imported.stats.files.length) return;
+    const nextStats = {
+      ...imported.stats,
+      files: recognized,
+      filesSkipped: 0,
+    };
+    const next = { ...imported, stats: nextStats };
+    setImported(next);
+    saveImportedLedger(next);
   }
 
   const s = activeLedger.stats;
@@ -244,20 +279,39 @@ export function Dashboard({
               <TaxSection lots={lots} currentPrice={price} />
             )}
             {tab === "ledger" && <TransactionsTable transactions={txns} />}
+            {tab === "settings" && (
+              <SettingsSection
+                mode={mode}
+                onModeChange={changeMode}
+                activeStats={s}
+                activeTransactions={txns}
+                source={activeLedger.source}
+                imported={imported}
+                privateLedger={privateLedger}
+                lastImportStats={imported?.stats ?? null}
+                onImport={handleImport}
+                onClearImported={handleClear}
+                onRemoveImportedFile={handleRemoveImportedFile}
+                onClearImportedUnrecognized={handleClearImportedUnrecognized}
+              />
+            )}
           </div>
 
-          {!isDemo && showReplace && (
-            <div className="mt-3">
-              <ImportDropzone onImport={handleImport} />
-            </div>
-          )}
           <footer className="mt-6 text-[11px] leading-relaxed text-faint">
             {isDemo ? (
               <>
                 {s.total.toLocaleString()} transactions normalized by the ETL
                 pipeline from {s.filesIngested} raw exchange exports across
                 Strike, Coinbase, Cash App and Swan · {s.duplicatesRemoved}{" "}
-                duplicate rows removed · all figures are synthetic demo data.
+                duplicate rows removed · all figures are synthetic demo data ·{" "}
+                <button
+                  type="button"
+                  onClick={() => setTab("settings")}
+                  className="text-bitcoin hover:underline"
+                >
+                  Load your own CSVs in Settings
+                </button>
+                .
               </>
             ) : (
               <>
@@ -267,27 +321,15 @@ export function Dashboard({
                 {s.filesSkipped > 0
                   ? ` (${s.filesSkipped} unrecognized file${s.filesSkipped === 1 ? "" : "s"} skipped)`
                   : ""}{" "}
-                · {s.duplicatesRemoved} duplicate rows removed · parsed locally,
-                never uploaded.{" "}
+                · parsed locally, never uploaded ·{" "}
                 <button
                   type="button"
-                  onClick={() => setShowReplace((o) => !o)}
+                  onClick={() => setTab("settings")}
                   className="text-bitcoin hover:underline"
                 >
-                  {showReplace ? "Close" : "Replace CSVs"}
+                  Manage data in Settings
                 </button>
-                {imported !== null && (
-                  <>
-                    {" · "}
-                    <button
-                      type="button"
-                      onClick={handleClear}
-                      className="text-muted hover:text-down"
-                    >
-                      Clear imported data
-                    </button>
-                  </>
-                )}
+                .
               </>
             )}
           </footer>

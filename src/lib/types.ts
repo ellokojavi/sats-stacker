@@ -21,6 +21,27 @@ export interface ExchangeStat {
   exchange: string;
   transactions: number;
   files: number;
+  /** ISO date of the earliest transaction from this exchange, or null. */
+  firstDate: string | null;
+  /** ISO date of the latest transaction from this exchange, or null. */
+  lastDate: string | null;
+}
+
+/** Per-file ingestion record — what got pulled in, from where, and across what window. */
+export interface FileImport {
+  fileName: string;
+  /** Detected exchange name, or null if the file's header didn't match any known exporter. */
+  exchange: string | null;
+  /** Recognized status: true if the file's schema matched a known exchange. */
+  recognized: boolean;
+  /** Rows kept after normalization (post duplicate-drop) — 0 for unrecognized files. */
+  transactions: number;
+  /** Duplicate rows removed while merging this file into its exchange bucket. */
+  duplicatesRemoved: number;
+  /** Earliest transaction date in this file, ISO. Null for unrecognized files. */
+  firstDate: string | null;
+  /** Latest transaction date in this file, ISO. Null for unrecognized files. */
+  lastDate: string | null;
 }
 
 export interface EtlStats {
@@ -29,6 +50,14 @@ export interface EtlStats {
   duplicatesRemoved: number;
   total: number;
   byExchange: ExchangeStat[];
+  /** Per-file ingestion detail. Recognized + skipped files, in input order. */
+  files: FileImport[];
+  /** Earliest transaction date across the whole ledger, ISO. Null for an empty ledger. */
+  firstDate: string | null;
+  /** Latest transaction date across the whole ledger, ISO. Null for an empty ledger. */
+  lastDate: string | null;
+  /** UTC timestamp (ISO) of when this normalization ran — useful for the Settings view. */
+  importedAt: string;
 }
 
 export interface EtlResult {

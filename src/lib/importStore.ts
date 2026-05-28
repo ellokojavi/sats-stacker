@@ -28,6 +28,27 @@ export function loadImportedLedger(): EtlResult | null {
       Array.isArray(parsed.transactions) &&
       parsed.transactions.length > 0
     ) {
+      // Defensive: ledgers saved before the import-summary fields existed
+      // won't have files/firstDate/lastDate/importedAt. Backfill so the UI
+      // doesn't crash on old data.
+      const stats = parsed.stats ?? ({} as EtlResult["stats"]);
+      const txns = parsed.transactions;
+      const firstDate =
+        stats.firstDate ?? (txns.length > 0 ? txns[0].date : null);
+      const lastDate =
+        stats.lastDate ?? (txns.length > 0 ? txns[txns.length - 1].date : null);
+      parsed.stats = {
+        ...stats,
+        files: Array.isArray(stats.files) ? stats.files : [],
+        firstDate,
+        lastDate,
+        importedAt: stats.importedAt ?? new Date().toISOString(),
+        byExchange: (stats.byExchange ?? []).map((row) => ({
+          ...row,
+          firstDate: row.firstDate ?? null,
+          lastDate: row.lastDate ?? null,
+        })),
+      };
       return parsed;
     }
     return null;
