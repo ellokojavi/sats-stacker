@@ -24,10 +24,31 @@ import { useCallback, useState } from "react";
 
 export type AxisValue = number | string;
 
+/**
+ * Recharts surfaces the cursor's X-axis value under two different keys
+ * depending on the chart family:
+ *   • LineChart / BarChart / ComposedChart (axis-tooltip charts) populate
+ *     `activeLabel` — the dataKey value of the nearest category.
+ *   • ScatterChart (item-tooltip with continuous axes) populates `xValue`,
+ *     the inverted x-scale value at the cursor, and leaves `activeLabel`
+ *     undefined. Using only `activeLabel` here silently disables drag-zoom
+ *     on every ScatterChart, which was the original bug.
+ */
 export type ChartMouseEvent = {
   activeLabel?: AxisValue;
+  xValue?: AxisValue;
   activeCoordinate?: { x: number; y: number };
 } | null;
+
+/** Pull the cursor's X-axis value from a recharts mouse event, regardless
+ *  of which chart family fired it. Returns `undefined` if the event is
+ *  outside the plot area or recharts couldn't resolve a scale. */
+const getEventX = (e: ChartMouseEvent): AxisValue | undefined => {
+  if (!e) return undefined;
+  if (e.activeLabel != null) return e.activeLabel;
+  if (e.xValue != null) return e.xValue;
+  return undefined;
+};
 
 export interface UseChartZoomOptions {
   /** Full X range of the data in numeric units. Used to compute the minimum
@@ -71,19 +92,21 @@ export function useChartZoom({
   const reset = useCallback(() => setDomain(null, "ALL"), [setDomain]);
 
   const onMouseDown = useCallback((e: ChartMouseEvent) => {
-    if (!e || e.activeLabel == null) return;
-    setDragStart(e.activeLabel);
-    setDragEnd(e.activeLabel);
+    const x = getEventX(e);
+    if (x == null) return;
+    setDragStart(x);
+    setDragEnd(x);
   }, []);
 
   const onMouseMove = useCallback(
     (e: ChartMouseEvent) => {
-      if (!e || e.activeLabel == null) return;
+      const x = getEventX(e);
+      if (x == null) return;
       // Only update if we're currently dragging.
       setDragEnd((prevEnd) => {
         // If there's no drag in progress (dragStart was cleared), don't capture
         // hover-only moves.
-        return prevEnd === null ? null : e.activeLabel ?? null;
+        return prevEnd === null ? null : x;
       });
     },
     [],
