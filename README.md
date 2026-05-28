@@ -46,15 +46,16 @@ Both keep real data out of the repo: `data/private/` is git-ignored, the browser
 
 ## What it shows
 
-Reports are organized into five tabs, with the headline KPIs pinned above them:
+Reports are organized into six tabs, with the headline KPIs pinned above them:
 
-- **Overview** — portfolio value over time, and the per-exchange breakdown
-- **Performance** — submarine chart, yearly performance, profitability distribution, capital-weighted CAGR vs. benchmarks, hall of fame & wall of shame
-- **Power Law** — current price against Bitcoin's historical power-law trend on log-log axes, with the model "fair value", market/model multiplier, slope β, R², and forward projections
-- **Tax** — holding-period breakdown plus an interactive sell simulator: FIFO / LIFO / HIFO cost-basis lot matching with estimated capital gain and short-/long-term split
+- **Overview** — portfolio value over time with a clickable legend that toggles each curve and its Y-axis, and the per-exchange breakdown
+- **Performance** — submarine chart, yearly performance with capital-weighted annualized ROI, profitability distribution, capital-weighted CAGR vs. benchmarks, hall of fame & wall of shame
+- **What If?** — compares your actual DCA against five counterfactual strategies (lump-sum, weekly, monthly, quarterly, and annual buys anchored to your first purchase date), with an interactive scoreboard and per-strategy info tooltips
+- **Power Law** — current price against Bitcoin's historical power-law trend on log-log axes (real prices from CryptoCompare), with model "fair value", market/model multiplier, slope β, R², bear/base/bull forward projections, and a DCA overlay of your own stacking pace; charts support date-range zoom with presets and drag selection, and a +5-year forecast band
+- **Tax** — holding-period breakdown plus an interactive sell simulator: FIFO / LIFO / HIFO cost-basis lot matching with editable BTC quantity and USD proceeds inputs, and estimated capital gain with short-/long-term split
 - **Ledger** — the full sortable, paginated transactions table
 
-Plus a **live BTC price** — a pulsing indicator in the header opens a dedicated live-price page (CoinGecko), and the live price drives every metric on the dashboard.
+**Live BTC price** — fetched server-side at page render (60-second ISR cache) so headline numbers are correct on first load with no flicker. A background client-side poll refreshes every 60 seconds, so charts and tables stay current during long sessions. A pulsing price chip in the header links directly to CoinGecko.
 
 ## Tech stack
 
@@ -136,6 +137,7 @@ sats-stacker was built in phases.
 - [x] **Phase 2 — Analytics**: submarine chart, yearly performance, per-exchange breakdown, profitability distribution, CAGR vs. benchmarks, transactions table, live price feed
 - [x] **Power Law & tabs**: Bitcoin power-law analysis on log-log axes, tabbed reports, dedicated live-price page
 - [x] **Phase 3 — Tax**: cost-basis lot tracking (FIFO / LIFO / HIFO) with a sell simulator, capital-gains estimates, and unit tests
+- [x] **Phase 4 — Polish & What If?**: What If? strategy comparator, date-range zoom with presets, power-law holdings projections (bear/base/bull bands), real BTC price history from CryptoCompare, editable tax inputs, clickable chart legends, capital-weighted annualized ROI, server-side price fetch with 60-second auto-refresh
 
 ## Disclaimer
 
