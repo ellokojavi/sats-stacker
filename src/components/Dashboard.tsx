@@ -21,6 +21,7 @@ import {
 import { TopBar } from "./TopBar";
 import { RealModeEmptyState } from "./RealModeEmptyState";
 import { SnapshotGrid } from "./SnapshotGrid";
+import { BuyHeatmap } from "./BuyHeatmap";
 import { HoldingsChart } from "./HoldingsChart";
 import { SubmarineChart } from "./SubmarineChart";
 import { YearlyTable } from "./YearlyTable";
@@ -71,6 +72,11 @@ export function Dashboard({
   const [mode, setMode] = useState<ViewMode>(privateLedger ? "real" : "demo");
   const [imported, setImported] = useState<EtlResult | null>(null);
   const [tab, setTab] = useState<TabId>("overview");
+  // On mobile we collapse the secondary Overview panels behind a "Show details"
+  // button so a thumb-scroll lands on the headline chart and heatmap, not a
+  // wall of tabular data. The toggle has no effect at md+ where everything
+  // is visible by default.
+  const [overviewShowDetails, setOverviewShowDetails] = useState(false);
 
   useEffect(() => {
     const savedLedger = loadImportedLedger();
@@ -252,7 +258,27 @@ export function Dashboard({
             {tab === "overview" && (
               <div className="space-y-3">
                 <HoldingsChart data={series} />
-                <ExchangeBreakdown rows={exchanges} />
+                <BuyHeatmap txns={txns} />
+                {/* Secondary panel: visible by default at md+, collapsed
+                    behind a "Show details" button on mobile. The button is
+                    hidden at md+ so it doesn't add noise on desktop. */}
+                <button
+                  type="button"
+                  onClick={() => setOverviewShowDetails((v) => !v)}
+                  aria-expanded={overviewShowDetails}
+                  className="block w-full rounded border border-edge bg-panel px-3 py-2 text-[12px] font-medium text-muted hover:text-ink md:hidden"
+                >
+                  {overviewShowDetails
+                    ? "Hide per-exchange breakdown"
+                    : "Show per-exchange breakdown"}
+                </button>
+                <div
+                  className={
+                    overviewShowDetails ? "block" : "hidden md:block"
+                  }
+                >
+                  <ExchangeBreakdown rows={exchanges} />
+                </div>
               </div>
             )}
             {tab === "performance" && (
