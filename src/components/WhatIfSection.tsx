@@ -59,6 +59,77 @@ function buildDateStrFormatter(rangeMs: number): (d: string) => string {
   };
 }
 
+/**
+ * Generate an explicit array of X-axis tick positions (date strings) snapped
+ * to round calendar boundaries — Jan 1 of each year, first of each month, or
+ * 7-day grid — so labels never duplicate. Without explicit ticks, recharts
+ * auto-picks evenly-spaced data points; with year-only labels and ~3,000
+ * daily points that produces multiple "2018" labels per year because the
+ * picks don't align to calendar boundaries.
+ */
+function buildDateStrTicks(
+  firstDate: string,
+  lastDate: string,
+  rangeMs: number,
+): string[] {
+  const ticks: string[] = [];
+  const firstMs = dateStrToMs(firstDate);
+  const lastMs = dateStrToMs(lastDate);
+  if (firstMs > lastMs) return ticks;
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  if (rangeMs > 730 * DAY_MS) {
+    // Year boundaries — stride 2 once we have more than 12 years to display.
+    const startYear = new Date(firstMs).getUTCFullYear();
+    const endYear = new Date(lastMs).getUTCFullYear();
+    const span = endYear - startYear + 1;
+    const step = span > 12 ? 2 : 1;
+    for (let y = startYear; y <= endYear; y += step) {
+      const t = Date.UTC(y, 0, 1);
+      if (t >= firstMs && t <= lastMs) ticks.push(`${y}-01-01`);
+    }
+    return ticks;
+  }
+
+  if (rangeMs > 90 * DAY_MS) {
+    // Month boundaries — stride 2 between 1y and 2y of range so we don't
+    // crowd a horizontally narrow chart.
+    const start = new Date(firstMs);
+    let y = start.getUTCFullYear();
+    let m = start.getUTCMonth();
+    // Walk forward to the next month start so we don't double-tick the
+    // first partial month.
+    if (start.getUTCDate() > 1) {
+      m += 1;
+      while (m > 11) {
+        m -= 12;
+        y += 1;
+      }
+    }
+    const step = rangeMs > 365 * DAY_MS ? 2 : 1;
+    while (true) {
+      const t = Date.UTC(y, m, 1);
+      if (t > lastMs) break;
+      if (t >= firstMs) ticks.push(`${y}-${pad(m + 1)}-01`);
+      m += step;
+      while (m > 11) {
+        m -= 12;
+        y += 1;
+      }
+    }
+    return ticks;
+  }
+
+  // Weekly ticks for short ranges.
+  let cursor = firstMs;
+  while (cursor <= lastMs) {
+    ticks.push(new Date(cursor).toISOString().slice(0, 10));
+    cursor += 7 * DAY_MS;
+  }
+  return ticks;
+}
+
 function WhatIfTooltip({ active, payload, label }: any) {
   if (!active || !payload || payload.length === 0) return null;
   // Sort the strategies by value desc so the leader is at the top.
@@ -171,6 +242,17 @@ export function WhatIfSection({
     () => buildDateStrFormatter(visibleRangeMs),
     [visibleRangeMs],
   );
+
+  // Compute explicit X-axis tick positions snapped to calendar boundaries so
+  // no two ticks ever resolve to the same year/month label.
+  const xTicks = useMemo(() => {
+    if (filtered.length === 0) return [];
+    return buildDateStrTicks(
+      filtered[0].date as string,
+      filtered[filtered.length - 1].date as string,
+      visibleRangeMs,
+    );
+  }, [filtered, visibleRangeMs]);
 
   // ── Per-strategy visibility — clickable legend, same pattern as HoldingsChart.
   const [hidden, setHidden] = useState<Set<StrategyId>>(new Set());
@@ -298,8 +380,9 @@ export function WhatIfSection({
               <CartesianGrid stroke="#232830" strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="date"
+                ticks={xTicks.length > 0 ? xTicks : undefined}
                 tickFormatter={xFormatter}
-                minTickGap={visibleRangeMs > 730 * DAY_MS ? 44 : 28}
+                interval={0}
                 tick={{ fill: "#8a8f99", fontSize: 11 }}
                 stroke="#232830"
               />
