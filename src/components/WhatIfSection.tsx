@@ -341,26 +341,7 @@ export function WhatIfSection({
       </Panel>
 
       <Panel title="Scoreboard — ranked by final portfolio value">
-        {/* The strategy info popover anchors below its row. For rows near the
-            bottom of the table, it overflows past the last row — and because
-            this container has `overflow-x: auto`, that overflow promotes to
-            a vertical scrollbar. The popover is ~110px tall plus its 24px
-            offset, and each row is ~32px, so we only need extra padding if
-            fewer than ~4 rows sit below the open row. Otherwise the
-            expansion is dead space that just looks weird. */}
-        <div
-          className={`overflow-x-auto transition-[padding-bottom] duration-150 ${
-            (() => {
-              if (!openInfo) return "";
-              const openIdx = scoreboard.findIndex(
-                (r) => r.strategyId === openInfo,
-              );
-              if (openIdx < 0) return "";
-              const rowsBelow = scoreboard.length - 1 - openIdx;
-              return rowsBelow < 4 ? "pb-32" : "";
-            })()
-          }`}
-        >
+        <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[12px]">
             <thead>
               <tr className="text-muted">
@@ -427,26 +408,42 @@ export function WhatIfSection({
                             <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.5a5 5 0 1 1 0 10A5 5 0 0 1 8 3Zm0 2.25a.95.95 0 1 1 0 1.9.95.95 0 0 1 0-1.9ZM7.25 7.5h1.5a.5.5 0 0 1 .5.5v3.5a.5.5 0 0 1-1 0V8.5h-.5a.5.5 0 0 1 0-1Z" />
                           </svg>
                         </button>
-                        {openInfo === r.strategyId && (
-                          <div
-                            ref={popoverRef}
-                            role="dialog"
-                            aria-label={`${meta.label} explanation`}
-                            className="absolute left-0 top-6 z-20 w-72 rounded-md border border-edge bg-night px-3 py-2 text-[11px] leading-relaxed text-ink shadow-lg"
-                          >
-                            <div
-                              className="mb-1 flex items-center gap-1.5 font-medium"
-                              style={{ color: meta.color }}
-                            >
-                              <span
-                                className="inline-block h-[3px] w-3.5"
-                                style={{ backgroundColor: meta.color }}
-                              />
-                              {meta.label}
-                            </div>
-                            <p className="text-muted">{meta.description}</p>
-                          </div>
-                        )}
+                        {openInfo === r.strategyId &&
+                          (() => {
+                            // Flip the popover to open ABOVE the row whenever
+                            // the row sits in the bottom half of the table.
+                            // The popover is ~110px tall + 24px offset; rows
+                            // are ~32px. Below-mode needs ≥4 rows of space
+                            // below, so above-mode is the right choice for
+                            // the second half of the table. No overflow,
+                            // no padding hack, works for any table length.
+                            const openAbove =
+                              idx >= Math.ceil(scoreboard.length / 2);
+                            return (
+                              <div
+                                ref={popoverRef}
+                                role="dialog"
+                                aria-label={`${meta.label} explanation`}
+                                className={`absolute left-0 z-20 w-72 rounded-md border border-edge bg-night px-3 py-2 text-[11px] leading-relaxed text-ink shadow-lg ${
+                                  openAbove ? "bottom-6" : "top-6"
+                                }`}
+                              >
+                                <div
+                                  className="mb-1 flex items-center gap-1.5 font-medium"
+                                  style={{ color: meta.color }}
+                                >
+                                  <span
+                                    className="inline-block h-[3px] w-3.5"
+                                    style={{ backgroundColor: meta.color }}
+                                  />
+                                  {meta.label}
+                                </div>
+                                <p className="text-muted">
+                                  {meta.description}
+                                </p>
+                              </div>
+                            );
+                          })()}
                       </span>
                     </td>
                     <td className="py-1.5 text-right font-mono tabular-nums">
