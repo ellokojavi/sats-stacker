@@ -341,13 +341,24 @@ export function WhatIfSection({
       </Panel>
 
       <Panel title="Scoreboard — ranked by final portfolio value">
-        {/* When a strategy popover opens on one of the bottom rows, its body
-            would otherwise extend below the table and turn `overflow-x: auto`
-            into a vertical scrollbar. Grow the container's bottom padding
-            only while a popover is open so there's room for it to land in. */}
+        {/* The strategy info popover anchors below its row. For rows near the
+            bottom of the table, it overflows past the last row — and because
+            this container has `overflow-x: auto`, that overflow promotes to
+            a vertical scrollbar. The popover is ~110px tall plus its 24px
+            offset, and each row is ~32px, so we only need extra padding if
+            fewer than ~4 rows sit below the open row. Otherwise the
+            expansion is dead space that just looks weird. */}
         <div
           className={`overflow-x-auto transition-[padding-bottom] duration-150 ${
-            openInfo ? "pb-32" : ""
+            (() => {
+              if (!openInfo) return "";
+              const openIdx = scoreboard.findIndex(
+                (r) => r.strategyId === openInfo,
+              );
+              if (openIdx < 0) return "";
+              const rowsBelow = scoreboard.length - 1 - openIdx;
+              return rowsBelow < 4 ? "pb-32" : "";
+            })()
           }`}
         >
           <table className="w-full border-collapse text-[12px]">
