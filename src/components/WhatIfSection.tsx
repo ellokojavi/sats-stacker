@@ -341,7 +341,15 @@ export function WhatIfSection({
       </Panel>
 
       <Panel title="Scoreboard — ranked by final portfolio value">
-        <div className="overflow-x-auto">
+        {/* When a strategy popover opens on one of the bottom rows, its body
+            would otherwise extend below the table and turn `overflow-x: auto`
+            into a vertical scrollbar. Grow the container's bottom padding
+            only while a popover is open so there's room for it to land in. */}
+        <div
+          className={`overflow-x-auto transition-[padding-bottom] duration-150 ${
+            openInfo ? "pb-32" : ""
+          }`}
+        >
           <table className="w-full border-collapse text-[12px]">
             <thead>
               <tr className="text-muted">
