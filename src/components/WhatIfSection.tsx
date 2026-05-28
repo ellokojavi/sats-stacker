@@ -346,7 +346,12 @@ export function WhatIfSection({
             <thead>
               <tr className="text-muted">
                 <th className="py-1.5 text-left font-normal">#</th>
-                <th className="py-1.5 text-left font-normal">Strategy</th>
+                <th className="py-1.5 text-left font-normal">
+                  Strategy{" "}
+                  <span className="text-faint">
+                    (for a {formatUsd(totalInvested)} investment)
+                  </span>
+                </th>
                 <th className="py-1.5 text-right font-normal">Final value</th>
                 <th className="py-1.5 text-right font-normal">BTC</th>
                 <th className="py-1.5 text-right font-normal">Avg buy</th>
