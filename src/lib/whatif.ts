@@ -109,6 +109,8 @@ export interface StrategyBuy {
 export interface StrategyPoint {
   /** ISO date. */
   date: string;
+  /** Days since the user's Day 1 (= first actual buy). Day 1 itself = 0. */
+  day: number;
   /** Cumulative BTC held at end of this day. */
   cumBtc: number;
   /** Cumulative USD invested at end of this day. */
@@ -186,31 +188,44 @@ function buildPriceLookup(prices: PricePoint[]): (date: string) => number {
 
 /**
  * Compute the daily portfolio-value series for a strategy's buy schedule.
- * Walks the price history once, accumulating cumulative BTC + USD as we cross
- * each buy date. Trims the head so the series starts at the first buy.
+ *
+ * `windowStart` is the user's Day 1 — the date of their first actual buy.
+ * All strategies share this anchor so their lines start on the same X point;
+ * "lazy" strategies (halving, dipBuy) that don't fire until later sit at
+ * cumBtc=0 / value=0 from windowStart until their first synthetic buy lands.
+ * Without this shared anchor, halving and dipBuy would appear to start later
+ * than the others and make the chart hard to read.
+ *
+ * Each point also carries `day` = days since windowStart so the chart can
+ * optionally render with a "Day N" X-axis instead of absolute dates.
  */
 function buildSeries(
   buys: StrategyBuy[],
   prices: PricePoint[],
   currentPrice: number,
+  windowStart: string,
 ): StrategyPoint[] {
-  if (buys.length === 0 || prices.length === 0) return [];
+  if (prices.length === 0) return [];
   const sortedBuys = [...buys].sort((a, b) => a.date.localeCompare(b.date));
   const sortedPrices = [...prices].sort((a, b) => a.date.localeCompare(b.date));
-  const firstBuyDay = sortedBuys[0].date.slice(0, 10);
+  const startMs = dateMs(windowStart);
 
   let buyIdx = 0;
   let cumBtc = 0;
   let cumUsd = 0;
   const out: StrategyPoint[] = [];
   for (const p of sortedPrices) {
-    while (buyIdx < sortedBuys.length && sortedBuys[buyIdx].date.slice(0, 10) <= p.date) {
+    while (
+      buyIdx < sortedBuys.length &&
+      sortedBuys[buyIdx].date.slice(0, 10) <= p.date
+    ) {
       cumBtc += sortedBuys[buyIdx].btc;
       cumUsd += sortedBuys[buyIdx].usd;
       buyIdx += 1;
     }
-    if (p.date >= firstBuyDay) {
-      out.push({ date: p.date, cumBtc, cumUsd, value: cumBtc * p.price });
+    if (p.date >= windowStart) {
+      const day = Math.max(0, Math.round((dateMs(p.date) - startMs) / DAY_MS));
+      out.push({ date: p.date, day, cumBtc, cumUsd, value: cumBtc * p.price });
     }
   }
 
@@ -421,7 +436,7 @@ export function simulateAllStrategies(
 
   return STRATEGIES.map((meta) => {
     const buys = buysByStrategy[meta.id];
-    const series = buildSeries(buys, prices, currentPrice);
+    const series = buildSeries(buys, prices, currentPrice, firstDate);
     const totalBtc = buys.reduce((s, b) => s + b.btc, 0);
     const totalInvested = buys.reduce((s, b) => s + b.usd, 0);
     const finalValue = totalBtc * currentPrice;
