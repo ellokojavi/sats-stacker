@@ -54,14 +54,17 @@ const TABS: { id: TabId; label: string }[] = [
 const COINGECKO_URL =
   "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
 
+
 export function Dashboard({
   demoLedger,
   privateLedger,
   priceHistory,
+  serverPrice,
 }: {
   demoLedger: EtlResult;
   privateLedger: EtlResult | null;
   priceHistory: PricePoint[];
+  serverPrice: number;
 }) {
   const [mode, setMode] = useState<ViewMode>(privateLedger ? "real" : "demo");
   const [imported, setImported] = useState<EtlResult | null>(null);
@@ -82,27 +85,34 @@ export function Dashboard({
   const txns = activeLedger.transactions;
 
   const bundled = priceHistory[priceHistory.length - 1];
-  const [price, setPrice] = useState(bundled.price);
-  const [live, setLive] = useState(false);
+  // serverPrice is fetched live on the server at page-render time (60s ISR
+  // cache), so it's already the real price — no client-side flash.
+  const [price, setPrice] = useState(serverPrice);
+  const [live, setLive] = useState(true);
 
   useEffect(() => {
+    // Poll every 60 s so charts and tables stay current during long sessions.
+    // price → useMemo chain → all derived values recompute automatically.
     let cancelled = false;
-    fetch(COINGECKO_URL)
-      .then((res) =>
-        res.ok ? res.json() : Promise.reject(new Error("bad status")),
-      )
-      .then((data) => {
+    async function refresh() {
+      try {
+        const res = await fetch(COINGECKO_URL);
+        if (!res.ok) return;
+        const data = await res.json();
         const p = data?.bitcoin?.usd;
         if (!cancelled && typeof p === "number" && p > 0) {
           setPrice(p);
           setLive(true);
         }
-      })
-      .catch(() => {
-        /* offline or rate-limited — keep the bundled price */
-      });
+      } catch {
+        /* offline or rate-limited — keep current price */
+      }
+    }
+    refresh();
+    const timer = setInterval(refresh, 60_000);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, []);
 
