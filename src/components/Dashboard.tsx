@@ -278,7 +278,12 @@ export function Dashboard({
             {tab === "tax" && (
               <TaxSection lots={lots} currentPrice={price} />
             )}
-            {tab === "ledger" && <TransactionsTable transactions={txns} />}
+            {tab === "ledger" && (
+              <TransactionsTable
+                transactions={txns}
+                source={activeLedger.source}
+              />
+            )}
             {tab === "settings" && (
               <SettingsSection
                 mode={mode}

@@ -1,8 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Transaction } from "@/lib/types";
+import type { DataSource, Transaction } from "@/lib/types";
 import { formatUsd, formatDateShort } from "@/lib/format";
+import {
+  buildLedgerCsv,
+  downloadTextFile,
+  ledgerFilename,
+} from "@/lib/exportCsv";
 import { Panel } from "./Panel";
 
 type SortKey = "date" | "source" | "btc" | "usd" | "buyPrice";
@@ -19,8 +24,14 @@ const COLUMNS: { key: SortKey; label: string; align: string }[] = [
 
 export function TransactionsTable({
   transactions,
+  source,
 }: {
   transactions: Transaction[];
+  /**
+   * The active ledger's source — used to name the downloaded CSV. Defaults
+   * to "imported" so the component is still usable in isolation.
+   */
+  source?: DataSource;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [ascending, setAscending] = useState(false);
@@ -54,8 +65,26 @@ export function TransactionsTable({
     setPage(0);
   }
 
+  function handleDownload() {
+    const csv = buildLedgerCsv(transactions);
+    downloadTextFile(ledgerFilename(source ?? "imported"), csv);
+  }
+
   return (
-    <Panel title={`Transactions (${transactions.length.toLocaleString()})`}>
+    <Panel
+      title={`Transactions (${transactions.length.toLocaleString()})`}
+      legend={
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={transactions.length === 0}
+          title="Download the full normalized ledger as a CSV"
+          className="ml-auto rounded border border-bitcoin/60 px-2.5 py-1 text-[11px] text-bitcoin hover:bg-bitcoin/10 disabled:opacity-50"
+        >
+          Export CSV
+        </button>
+      }
+    >
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[12px]">
           <thead>
