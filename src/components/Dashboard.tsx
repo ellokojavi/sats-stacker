@@ -77,13 +77,28 @@ export function Dashboard({
   // wall of tabular data. The toggle has no effect at md+ where everything
   // is visible by default.
   const [overviewShowDetails, setOverviewShowDetails] = useState(false);
+  // Imported data lives in localStorage, which the server can't see — so on
+  // refresh the SSR pass renders mode="demo" and the client then flips to
+  // "real" once useEffect reads localStorage. To avoid the demo→real flash,
+  // we gate the dashboard body until we've checked localStorage. If
+  // privateLedger exists (server-detected real data), the initial mode is
+  // already correct and there's nothing to wait for.
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     const savedLedger = loadImportedLedger();
     if (savedLedger) setImported(savedLedger);
     const savedMode = loadMode();
-    if (savedMode) setMode(savedMode);
-  }, []);
+    // Only honor saved "demo" if no real data is available — otherwise
+    // imported data should default to real mode on refresh, matching the
+    // initialization rule for server-detected privateLedger.
+    if (savedMode === "real" || (savedMode === "demo" && !savedLedger && !privateLedger)) {
+      setMode(savedMode);
+    } else if (savedLedger) {
+      setMode("real");
+    }
+    setHydrated(true);
+  }, [privateLedger]);
 
   const realLedger = imported ?? privateLedger;
   const showEmptyState = mode === "real" && realLedger === null;
@@ -207,6 +222,13 @@ export function Dashboard({
 
   const s = activeLedger.stats;
   const isDemo = activeLedger.source === "demo";
+
+  // If the server didn't detect real data, we don't yet know whether the
+  // client has imported data in localStorage. Render an empty shell during
+  // that microframe rather than flashing the demo dashboard.
+  if (!hydrated && !privateLedger) {
+    return <main className="mx-auto max-w-5xl px-5 py-8" aria-hidden="true" />;
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-8">

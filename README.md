@@ -33,6 +33,73 @@ Every exchange exports its history in a different, slightly messy CSV format:
 
 The ETL pipeline in `src/lib/etl/` auto-detects each file's exchange from its header, finds the real header past any preamble, normalizes all four schemas onto one standard ledger (`date, source, btc, usd, fees`), removes duplicate rows, and hands the result to the dashboard. The core is pure TypeScript with no filesystem dependency, so the **exact same pipeline runs at build time over the bundled data and in your browser over files you import.**
 
+## Architecture
+
+```mermaid
+flowchart TD
+    EX["Exchange CSV exports<br/>Strike · Coinbase · Cash App · Swan"]
+    GEN[["scripts/generate_data.py<br/>Python · seeded synthetic data"]]
+
+    GEN --> RAW["data/raw/<br/>bundled demo CSVs"]
+    EX -->|drop into folder| PRIV["data/private/<br/>git-ignored"]
+    EX -->|drag and drop in app| IMP["In-app import<br/>browser File API"]
+
+    subgraph ETL["ETL pipeline — src/lib/etl/ — pure TypeScript"]
+        direction TB
+        DETECT["Detect exchange<br/>from header signature"]
+        PARSE["Parse CSV<br/>skip preamble rows"]
+        NORM["Normalize to<br/>standard ledger schema"]
+        DEDUP["Deduplicate"]
+        DETECT --> PARSE --> NORM --> DEDUP
+    end
+
+    RAW --> DETECT
+    PRIV --> DETECT
+    IMP --> DETECT
+
+    LEDGER[("Standard ledger<br/>date · source · btc · usd · fees")]
+    DEDUP --> LEDGER
+
+    subgraph LIB["Analytics — src/lib/ — TypeScript"]
+        direction LR
+        PORT["portfolio.ts<br/>snapshot + HODLings"]
+        ANAL["analytics.ts<br/>yearly · CAGR · per-exchange"]
+        WHAT["whatif.ts<br/>DCA counterfactuals"]
+        PL["powerlaw.ts<br/>log-log fit + projections"]
+        TAX["tax.ts<br/>FIFO · LIFO · HIFO"]
+    end
+
+    LEDGER --> PORT
+    LEDGER --> ANAL
+    LEDGER --> WHAT
+    LEDGER --> PL
+    LEDGER --> TAX
+
+    CG{{"CoinGecko<br/>live price · 60s ISR"}}
+    CC{{"CryptoCompare<br/>weekly price history"}}
+    CG --> PORT
+    CC --> PL
+
+    subgraph UI["Next.js 14 App Router · React 18 · Tailwind · Recharts"]
+        direction LR
+        T1["Overview"]
+        T2["Performance"]
+        T3["What If?"]
+        T4["Power Law"]
+        T5["Tax"]
+        T6["Ledger"]
+    end
+
+    PORT --> T1
+    ANAL --> T2
+    WHAT --> T3
+    PL --> T4
+    TAX --> T5
+    LEDGER --> T6
+```
+
+CSVs from the four exchanges (or the seeded Python generator) feed a single TypeScript ETL pipeline that produces one canonical ledger. Five `src/lib/` modules read from that ledger, two external APIs supply live and historical prices, and the dashboard tabs render the result.
+
 ## Demo and Real modes
 
 A **Demo / Real** toggle in the header switches between synthetic data (shareable, works out of the box) and your own holdings. Switch to Real with no data loaded and the app walks you through importing your first CSVs.
