@@ -37,6 +37,12 @@ next-env.d.ts
 !/data/private/README.md
 
 # ---------------------------------------------------------------
+# Developer-internal scratch docs (scheduled-task briefings, etc.)
+# — kept on disk for context, never pushed to the public repo.
+# ---------------------------------------------------------------
+/docs/daily-briefing-*.md
+
+# ---------------------------------------------------------------
 # SAFEGUARD: block common real-export filenames anywhere else in
 # the repo, in case they get copied in by mistake.
 # ---------------------------------------------------------------
