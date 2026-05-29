@@ -74,7 +74,7 @@ export function TimeMachine({
 
   return (
     <Panel
-      title="Time machine"
+      title="🕰️ Time machine"
       legend={
         <span
           className="text-[11px] text-faint"

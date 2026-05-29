@@ -13,7 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import type { HoldingsPoint } from "@/lib/types";
-import { formatUsd, formatUsdShort, formatDate } from "@/lib/format";
+import { formatUsd, formatUsdShort, formatDate, formatBtc } from "@/lib/format";
 import { DateRangeControls } from "./charts/DateRangeControls";
 import { useChartZoom } from "./charts/useChartZoom";
 import {
@@ -29,11 +29,19 @@ function ChartTooltip({ active, payload, label }: any) {
       <div className="mb-1 text-faint">{formatDate(label)}</div>
       {payload.map((entry: any) => (
         <div key={entry.name} style={{ color: entry.color }}>
-          {entry.name}: {formatUsd(entry.value)}
+          {entry.name}:{" "}
+          {entry.dataKey === "btcStack"
+            ? formatBtc(entry.value)
+            : formatUsd(entry.value)}
         </div>
       ))}
     </div>
   );
+}
+
+/** Compact BTC formatter for axis ticks — keeps the right axis narrow. */
+function formatBtcShort(n: number): string {
+  return n.toFixed(n >= 10 ? 1 : n >= 1 ? 2 : 3) + " ₿";
 }
 
 const DAY_MS = 86400000;
@@ -123,8 +131,30 @@ export function HoldingsChart({ data }: { data: HoldingsPoint[] }) {
   // Clickable legend state — each curve and its corresponding Y axis can be
   // toggled. The axes only mount when their series is visible, so an empty
   // chart genuinely empties out instead of leaving orphan ticks behind.
+  //
+  // BTC price (USD) and BTC stack (BTC units) both want the right axis but
+  // disagree on units, so they're mutually exclusive: turning one on turns
+  // the other off. Portfolio value owns the left axis and is independent.
   const [showPortfolio, setShowPortfolio] = useState(true);
   const [showBtcPrice, setShowBtcPrice] = useState(true);
+  const [showBtcStack, setShowBtcStack] = useState(false);
+
+  const toggleBtcPrice = () => {
+    setShowBtcPrice((v) => {
+      const next = !v;
+      if (next) setShowBtcStack(false);
+      return next;
+    });
+  };
+  const toggleBtcStack = () => {
+    setShowBtcStack((v) => {
+      const next = !v;
+      if (next) setShowBtcPrice(false);
+      return next;
+    });
+  };
+
+  const rightAxisOn = showBtcPrice || showBtcStack;
 
   return (
     <div className="rounded-xl border border-edge bg-panel p-4">
@@ -146,15 +176,42 @@ export function HoldingsChart({ data }: { data: HoldingsPoint[] }) {
         </button>
         <button
           type="button"
-          onClick={() => setShowBtcPrice((v) => !v)}
+          onClick={toggleBtcPrice}
           aria-pressed={showBtcPrice}
-          title={showBtcPrice ? "Hide BTC price" : "Show BTC price"}
+          title={
+            showBtcPrice
+              ? "Hide BTC price"
+              : showBtcStack
+                ? "Show BTC price (hides BTC stack)"
+                : "Show BTC price"
+          }
           className={`flex items-center gap-1.5 text-[11px] transition-opacity ${
             showBtcPrice ? "text-muted hover:text-ink" : "text-faint opacity-60 hover:opacity-100"
           }`}
         >
           <span className="inline-block h-0 w-3.5 border-t-2 border-dashed border-bitcoin" />
           BTC price
+        </button>
+        <button
+          type="button"
+          onClick={toggleBtcStack}
+          aria-pressed={showBtcStack}
+          title={
+            showBtcStack
+              ? "Hide BTC stack"
+              : showBtcPrice
+                ? "Show BTC stack (hides BTC price)"
+                : "Show BTC stack"
+          }
+          className={`flex items-center gap-1.5 text-[11px] transition-opacity ${
+            showBtcStack ? "text-muted hover:text-ink" : "text-faint opacity-60 hover:opacity-100"
+          }`}
+        >
+          <span
+            className="inline-block h-0 w-3.5 border-t-2 border-dotted"
+            style={{ borderColor: "#60a5fa" }}
+          />
+          BTC stack
         </button>
       </div>
       <DateRangeControls
@@ -194,12 +251,15 @@ export function HoldingsChart({ data }: { data: HoldingsPoint[] }) {
                 width={54}
               />
             )}
-            {showBtcPrice && (
+            {rightAxisOn && (
               <YAxis
                 yAxisId="right"
                 orientation="right"
-                tickFormatter={formatUsdShort}
-                tick={{ fill: "#f7931a", fontSize: 11 }}
+                tickFormatter={showBtcStack ? formatBtcShort : formatUsdShort}
+                tick={{
+                  fill: showBtcStack ? "#60a5fa" : "#f7931a",
+                  fontSize: 11,
+                }}
                 stroke="#232830"
                 width={54}
               />
@@ -231,12 +291,25 @@ export function HoldingsChart({ data }: { data: HoldingsPoint[] }) {
                 isAnimationActive={false}
               />
             )}
+            {showBtcStack && (
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="btcStack"
+                name="BTC stack"
+                stroke="#60a5fa"
+                strokeWidth={1.6}
+                strokeDasharray="2 3"
+                dot={false}
+                isAnimationActive={false}
+              />
+            )}
             {/* Anchor the drag-zoom rectangle to whichever Y axis is mounted —
                 referencing "left" when the portfolio area is hidden would
                 produce an unresolved yAxisId warning from recharts. */}
             {zoom.dragStart != null &&
               zoom.dragEnd != null &&
-              (showPortfolio || showBtcPrice) && (
+              (showPortfolio || rightAxisOn) && (
                 <ReferenceArea
                   yAxisId={showPortfolio ? "left" : "right"}
                   x1={zoom.dragStart as string}

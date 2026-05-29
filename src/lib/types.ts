@@ -96,6 +96,8 @@ export interface HoldingsPoint {
   portfolioValue: number;
   btcPrice: number;
   invested: number;
+  /** Cumulative BTC stack at this date — drives the HODLings chart's optional stack-size overlay. */
+  btcStack: number;
 }
 
 /** A single buy, valued against the current price. */

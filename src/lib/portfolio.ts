@@ -67,6 +67,7 @@ export function computeHoldingsSeries(
         portfolioValue: cumBtc * point.price,
         btcPrice: point.price,
         invested: cumUsd,
+        btcStack: cumBtc,
       });
     }
   }
