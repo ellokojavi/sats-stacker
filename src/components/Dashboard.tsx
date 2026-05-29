@@ -6,6 +6,7 @@ import { computeSnapshot, computeHoldingsSeries } from "@/lib/portfolio";
 import {
   computeLots,
   computeYearly,
+  computeHalvingCohorts,
   computeProfitability,
   computeCagr,
   computeExchangeBreakdown,
@@ -18,6 +19,7 @@ import {
   loadMode,
   saveMode,
 } from "@/lib/importStore";
+import { UnitProvider } from "@/lib/unit";
 import { TopBar } from "./TopBar";
 import { RealModeEmptyState } from "./RealModeEmptyState";
 import { SnapshotGrid } from "./SnapshotGrid";
@@ -25,6 +27,8 @@ import { BuyHeatmap } from "./BuyHeatmap";
 import { HoldingsChart } from "./HoldingsChart";
 import { SubmarineChart } from "./SubmarineChart";
 import { YearlyTable } from "./YearlyTable";
+import { HalvingCohorts } from "./HalvingCohorts";
+import { TimeMachine } from "./TimeMachine";
 import { ExchangeBreakdown } from "./ExchangeBreakdown";
 import { ProfitabilityBar } from "./ProfitabilityBar";
 import { CapitalEfficiency } from "./CapitalEfficiency";
@@ -138,28 +142,91 @@ export function Dashboard({
     };
   }, []);
 
+  // ── Time-machine cursor ────────────────────────────────────────────────
+  // Defaults to "today" (the bundled price-history's last point). When the
+  // user drags the cursor backwards, we re-derive every analytic against
+  // the historical price for that day. The TopBar and UnitProvider keep
+  // showing the *real* live price so the unit toggle's BTC↔sats math
+  // doesn't wobble while scrubbing.
+  const [cursorDate, setCursorDate] = useState<string>(
+    bundled.date.slice(0, 10),
+  );
+
+  const todayIso = bundled.date.slice(0, 10);
+  const isCursorToday = cursorDate >= todayIso;
+
+  const cursorHistoricalPrice = useMemo(() => {
+    if (priceHistory.length === 0) return price;
+    // Bisect: largest price-day <= cursorDate.
+    let lo = 0;
+    let hi = priceHistory.length - 1;
+    if (cursorDate < priceHistory[0].date.slice(0, 10)) return priceHistory[0].price;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (priceHistory[mid].date.slice(0, 10) <= cursorDate) lo = mid;
+      else hi = mid - 1;
+    }
+    return priceHistory[lo].price;
+  }, [priceHistory, cursorDate, price]);
+
+  // The price + as-of date the analytics see. When the cursor is at today,
+  // use the live price (so KPIs match the header to the cent); otherwise
+  // use the historical close from the bundled series.
+  const effectivePrice = isCursorToday ? price : cursorHistoricalPrice;
+  const effectiveAsOf = isCursorToday ? bundled.date : cursorDate;
+
+  // For the holdings series, when time-traveling we truncate the curve at
+  // the cursor — showing the future portfolio value of past buys would be
+  // misleading. When the cursor is at today, leave the series untouched
+  // so the live price restates the rightmost point as before.
+  const cursorPriceHistory = useMemo(() => {
+    if (isCursorToday) return priceHistory;
+    return priceHistory.filter(
+      (p) => p.date.slice(0, 10) <= cursorDate,
+    );
+  }, [priceHistory, cursorDate, isCursorToday]);
+
+  // Likewise drop any transactions that happened after the cursor — a buy
+  // hasn't happened yet from the cursor's perspective.
+  const effectiveTxns = useMemo(() => {
+    if (isCursorToday) return txns;
+    return txns.filter((t) => t.date.slice(0, 10) <= cursorDate);
+  }, [txns, cursorDate, isCursorToday]);
+
   const snapshot = useMemo(
-    () => computeSnapshot(txns, price, bundled.date),
-    [txns, price, bundled.date],
+    () => computeSnapshot(effectiveTxns, effectivePrice, effectiveAsOf),
+    [effectiveTxns, effectivePrice, effectiveAsOf],
   );
   const series = useMemo(
-    () => computeHoldingsSeries(txns, priceHistory, price),
-    [txns, priceHistory, price],
+    () =>
+      computeHoldingsSeries(
+        effectiveTxns,
+        cursorPriceHistory,
+        isCursorToday ? price : effectivePrice,
+      ),
+    [effectiveTxns, cursorPriceHistory, isCursorToday, price, effectivePrice],
   );
   const lots = useMemo(
-    () => computeLots(txns, price, bundled.date),
-    [txns, price, bundled.date],
+    () => computeLots(effectiveTxns, effectivePrice, effectiveAsOf),
+    [effectiveTxns, effectivePrice, effectiveAsOf],
   );
   const yearly = useMemo(
-    () => computeYearly(txns, price, bundled.date),
-    [txns, price, bundled.date],
+    () => computeYearly(effectiveTxns, effectivePrice, effectiveAsOf),
+    [effectiveTxns, effectivePrice, effectiveAsOf],
+  );
+  const cohorts = useMemo(
+    () => computeHalvingCohorts(effectiveTxns, effectivePrice, effectiveAsOf),
+    [effectiveTxns, effectivePrice, effectiveAsOf],
   );
   const profitability = useMemo(() => computeProfitability(lots), [lots]);
   const cagr = useMemo(() => computeCagr(lots), [lots]);
   const exchanges = useMemo(
-    () => computeExchangeBreakdown(txns, price),
-    [txns, price],
+    () => computeExchangeBreakdown(effectiveTxns, effectivePrice),
+    [effectiveTxns, effectivePrice],
   );
+  // Power Law fit always uses the full price history + live price — it's
+  // a model of the network, not the user's portfolio, and shouldn't get
+  // foreshortened by the time cursor.
   const powerLaw = useMemo(
     () => computePowerLaw(priceHistory, price, bundled.date),
     [priceHistory, price, bundled.date],
@@ -231,6 +298,7 @@ export function Dashboard({
   }
 
   return (
+    <UnitProvider price={price}>
     <main className="mx-auto max-w-5xl px-5 py-8">
       <TopBar
         mode={mode}
@@ -279,8 +347,14 @@ export function Dashboard({
           <div className="mt-3">
             {tab === "overview" && (
               <div className="space-y-3">
+                <TimeMachine
+                  prices={priceHistory}
+                  cursorIso={cursorDate}
+                  todayIso={todayIso}
+                  onCursorChange={setCursorDate}
+                />
                 <HoldingsChart data={series} />
-                <BuyHeatmap txns={txns} />
+                <BuyHeatmap txns={effectiveTxns} />
                 {/* Secondary panel: visible by default at md+, collapsed
                     behind a "Show details" button on mobile. The button is
                     hidden at md+ so it doesn't add noise on desktop. */}
@@ -305,8 +379,12 @@ export function Dashboard({
             )}
             {tab === "performance" && (
               <div className="space-y-3">
-                <SubmarineChart lots={lots} currentPrice={price} />
+                {/* SubmarineChart and TaxSection take `currentPrice` directly;
+                    pass the time-machine's effective price so they stay in
+                    sync with the lots they're rendered against. */}
+                <SubmarineChart lots={lots} currentPrice={effectivePrice} />
                 <YearlyTable rows={yearly} />
+                <HalvingCohorts rows={cohorts} />
                 <ProfitabilityBar tiers={profitability} />
                 <CapitalEfficiency cagr={cagr} />
                 <HallOfFame lots={lots} />
@@ -324,11 +402,11 @@ export function Dashboard({
               <PowerLawSection data={powerLaw} snapshot={snapshot} />
             )}
             {tab === "tax" && (
-              <TaxSection lots={lots} currentPrice={price} />
+              <TaxSection lots={lots} currentPrice={effectivePrice} />
             )}
             {tab === "ledger" && (
               <TransactionsTable
-                transactions={txns}
+                transactions={effectiveTxns}
                 source={activeLedger.source}
               />
             )}
@@ -342,6 +420,7 @@ export function Dashboard({
                 imported={imported}
                 privateLedger={privateLedger}
                 lastImportStats={imported?.stats ?? null}
+                priceHistory={priceHistory}
                 onImport={handleImport}
                 onClearImported={handleClear}
                 onRemoveImportedFile={handleRemoveImportedFile}
@@ -389,5 +468,6 @@ export function Dashboard({
         </>
       )}
     </main>
+    </UnitProvider>
   );
 }

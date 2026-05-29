@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   EtlResult,
   EtlStats,
+  PricePoint,
   Transaction,
   ViewMode,
 } from "@/lib/types";
@@ -12,6 +13,7 @@ import {
   downloadTextFile,
   ledgerFilename,
 } from "@/lib/exportCsv";
+import { computeDataQuality } from "@/lib/analytics";
 import { ImportDropzone } from "./ImportDropzone";
 import { ImportSummary } from "./ImportSummary";
 import { Panel } from "./Panel";
@@ -30,6 +32,7 @@ export function SettingsSection({
   imported,
   privateLedger,
   lastImportStats,
+  priceHistory,
   onImport,
   onClearImported,
   onRemoveImportedFile,
@@ -49,6 +52,8 @@ export function SettingsSection({
   privateLedger: EtlResult | null;
   /** Stats from the most recent in-browser CSV import (sticky across reloads). */
   lastImportStats: EtlStats | null;
+  /** Bundled BTC price history — drives the ETL anomaly cross-check. */
+  priceHistory: PricePoint[];
   onImport: (result: EtlResult) => void;
   onClearImported: () => void;
   /** Remove a single unrecognized file from the imported ledger's record. */
@@ -58,6 +63,21 @@ export function SettingsSection({
 }) {
   const [showImporter, setShowImporter] = useState(
     source === "demo" && !imported,
+  );
+
+  // Cross-check the active ledger against the bundled price history. Memoize
+  // so we don't redo the bisect on every render — the inputs only change
+  // when the user switches data sources or imports new CSVs.
+  const dataQuality = useMemo(
+    () => computeDataQuality(activeTransactions, priceHistory),
+    [activeTransactions, priceHistory],
+  );
+  const lastImportDataQuality = useMemo(
+    () =>
+      lastImportStats && imported
+        ? computeDataQuality(imported.transactions, priceHistory)
+        : null,
+    [lastImportStats, imported, priceHistory],
   );
 
   const sourceLabel =
@@ -210,6 +230,7 @@ export function SettingsSection({
             ? "What the demo ledger contains — exchanges, files, and the timeframe each one covers."
             : "What the dashboard is currently rendering from."
         }
+        dataQuality={dataQuality}
         onRemoveFile={
           canEditImportedFiles ? onRemoveImportedFile : undefined
         }
@@ -223,6 +244,7 @@ export function SettingsSection({
           stats={lastImportStats}
           title="Last CSV import (not currently active)"
           intro="You imported these CSVs earlier in this browser. Switch to Real mode to see them on the dashboard."
+          dataQuality={lastImportDataQuality ?? undefined}
         />
       )}
     </div>

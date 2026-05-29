@@ -63,7 +63,7 @@ flowchart TD
     subgraph LIB["Analytics — src/lib/ — TypeScript"]
         direction LR
         PORT["portfolio.ts<br/>snapshot + HODLings"]
-        ANAL["analytics.ts<br/>yearly · CAGR · per-exchange"]
+        ANAL["analytics.ts<br/>yearly · halving cohorts · CAGR<br/>per-exchange · ETL data quality"]
         WHAT["whatif.ts<br/>DCA counterfactuals"]
         PL["powerlaw.ts<br/>log-log fit + projections"]
         TAX["tax.ts<br/>FIFO · LIFO · HIFO"]
@@ -79,15 +79,23 @@ flowchart TD
     CC{{"CryptoCompare<br/>weekly price history"}}
     CG --> PORT
     CC --> PL
+    CC --> ANAL
+
+    TM["Time machine<br/>date cursor"]
+    UNIT["USD / sats<br/>denomination toggle"]
+    TM -.swaps asOf + price.-> PORT
+    TM -.swaps asOf + price.-> ANAL
+    TM -.swaps asOf + price.-> TAX
 
     subgraph UI["Next.js 14 App Router · React 18 · Tailwind · Recharts"]
         direction LR
-        T1["Overview"]
+        T1["Overview<br/>(hosts time machine)"]
         T2["Performance"]
         T3["What If?"]
         T4["Power Law"]
         T5["Tax"]
         T6["Ledger"]
+        T7["Settings<br/>(hosts data-quality panel)"]
     end
 
     PORT --> T1
@@ -96,9 +104,11 @@ flowchart TD
     PL --> T4
     TAX --> T5
     LEDGER --> T6
+    ANAL --> T7
+    UNIT -.formats every $-denominated cell.-> UI
 ```
 
-CSVs from the four exchanges (or the seeded Python generator) feed a single TypeScript ETL pipeline that produces one canonical ledger. Five `src/lib/` modules read from that ledger, two external APIs supply live and historical prices, and the dashboard tabs render the result.
+CSVs from the four exchanges (or the seeded Python generator) feed a single TypeScript ETL pipeline that produces one canonical ledger. Five `src/lib/` modules read from that ledger, two external APIs supply live and historical prices, and seven dashboard tabs render the result. Two cross-cutting controls — the **time-machine cursor** (swaps the `(price, asOf)` inputs the analytics see) and the **USD/sats denomination toggle** (flips how every dollar figure is formatted) — wrap the whole thing.
 
 ## Demo and Real modes
 
@@ -115,12 +125,16 @@ Both keep real data out of the repo: `data/private/` is git-ignored, the browser
 
 Reports are organized into six tabs, with the headline KPIs pinned above them:
 
-- **Overview** — portfolio value over time with a clickable legend that toggles each curve and its Y-axis, and the per-exchange breakdown
-- **Performance** — submarine chart, yearly performance with capital-weighted annualized ROI, profitability distribution, capital-weighted CAGR vs. benchmarks, hall of fame & wall of shame
+- **Overview** — a **time machine** (drag a date cursor and watch every KPI, table, and chart recompute as of that day — every analytic is a pure function of `(transactions, price, asOf)`, and the slider just swaps the latter two), portfolio value over time with a clickable legend that toggles each curve and its Y-axis, a buy-density heatmap, and the per-exchange breakdown
+- **Performance** — submarine chart, yearly performance with capital-weighted annualized ROI, a **halving-cycle cohort view** (buys grouped by Bitcoin's halving epochs, the cycle-defining events of the network), profitability distribution, capital-weighted CAGR vs. benchmarks, hall of fame & wall of shame
 - **What If?** — compares your actual DCA against five counterfactual strategies (lump-sum, weekly, monthly, quarterly, and annual buys anchored to your first purchase date), with an interactive scoreboard and per-strategy info tooltips
 - **Power Law** — current price against Bitcoin's historical power-law trend on log-log axes (real prices from CryptoCompare), with model "fair value", market/model multiplier, slope β, R², bear/base/bull forward projections, and a DCA overlay of your own stacking pace; charts support date-range zoom with presets and drag selection, and a +5-year forecast band
 - **Tax** — holding-period breakdown plus an interactive sell simulator: FIFO / LIFO / HIFO cost-basis lot matching with editable BTC quantity and USD proceeds inputs, and estimated capital gain with short-/long-term split
 - **Ledger** — the full sortable, paginated transactions table
+
+**Settings tab** also hosts an **ETL data-quality panel** that cross-checks every transaction's implied $/BTC against the bundled BTC price history for that day and flags anomalies — a fee leak rolled into the principal column, a normalizer mis-mapping a field, that kind of thing. The ETL story isn't just "we transformed" — it's "we transformed *and verified*."
+
+**USD / sats denomination toggle** — a header switch flips every dollar-denominated KPI, table, and BTC quantity on the dashboard between US dollars and satoshis (1 BTC = 100,000,000 sats). $/BTC exchange rates stay in USD; everything else respects the toggle.
 
 **Live BTC price** — fetched server-side at page render (60-second ISR cache) so headline numbers are correct on first load with no flicker. A background client-side poll refreshes every 60 seconds, so charts and tables stay current during long sessions. A pulsing price chip in the header links directly to CoinGecko.
 
@@ -183,14 +197,16 @@ sats-stacker/
 │   ├── components/             dashboard, tabs, panels, charts, tables, import
 │   └── lib/
 │       ├── etl/                CSV parser, exchange normalizers, pipeline
-│       ├── analytics.ts        lots, yearly, profitability, CAGR, per-exchange
+│       ├── analytics.ts        lots, yearly, halving cohorts, profitability,
+│       │                       CAGR, per-exchange, ETL data-quality checks
 │       ├── powerlaw.ts         power-law least-squares fit
 │       ├── tax.ts              FIFO/LIFO/HIFO cost-basis engine
 │       ├── tax.test.ts         Vitest unit tests for the tax engine
 │       ├── portfolio.ts        snapshot + holdings-series metrics
 │       ├── data.ts             filesystem loaders (demo / private)
 │       ├── importStore.ts      browser-import localStorage persistence
-│       ├── format.ts           number / date formatting
+│       ├── unit.tsx            USD/sats denomination context
+│       ├── format.ts           number / date / unit-aware formatting
 │       └── types.ts            shared types
 ├── tailwind.config.ts
 └── package.json
@@ -205,6 +221,7 @@ sats-stacker was built in phases.
 - [x] **Power Law & tabs**: Bitcoin power-law analysis on log-log axes, tabbed reports, dedicated live-price page
 - [x] **Phase 3 — Tax**: cost-basis lot tracking (FIFO / LIFO / HIFO) with a sell simulator, capital-gains estimates, and unit tests
 - [x] **Phase 4 — Polish & What If?**: What If? strategy comparator, date-range zoom with presets, power-law holdings projections (bear/base/bull bands), real BTC price history from CryptoCompare, editable tax inputs, clickable chart legends, capital-weighted annualized ROI, server-side price fetch with 60-second auto-refresh
+- [x] **Phase 6 — Domain depth & shareability**: time-machine date cursor (drag a date and watch every analytic recompute as of that day), halving-cycle cohort view (buys grouped by Bitcoin halving epochs), USD/sats denomination toggle in the header, and an ETL data-quality panel that cross-checks every transaction's implied $/BTC against the bundled price history and flags anomalies. *(Phase 5 — fees, realized P/L, risk panel, goals — is planned but not yet shipped; tracked in `docs/`.)*
 
 ## Disclaimer
 

@@ -1,25 +1,41 @@
 "use client";
 
-import type { YearRow } from "@/lib/types";
+import type { CycleRow } from "@/lib/types";
 import { formatUsd, formatPct, formatValue, formatBtcValue } from "@/lib/format";
 import { useUnit } from "@/lib/unit";
 import { Panel } from "./Panel";
 
-export function YearlyTable({ rows }: { rows: YearRow[] }) {
+/**
+ * Bitcoin-native sibling of `YearlyTable`. Calendar years are a generic
+ * Wall Street primitive; halving epochs are the cycle-defining events of
+ * the network itself, and "what cycle did you buy in" is a more
+ * meaningful question for a BTC-literate reviewer than "what year."
+ */
+export function HalvingCohorts({ rows }: { rows: CycleRow[] }) {
   const { unit, price } = useUnit();
   return (
-    <Panel title="Yearly performance">
+    <Panel
+      title="Halving-cycle cohorts"
+      legend={
+        <span
+          className="text-[11px] text-faint"
+          title="Buys grouped by Bitcoin halving epoch — the cycle-defining events of the network. Endpoints come from on-chain halving block timestamps. Epochs with no buys are omitted."
+        >
+          buys grouped by halving epoch
+        </span>
+      }
+    >
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[12px]">
           <thead>
             <tr className="text-muted">
-              <th className="py-1.5 text-left font-normal">Year</th>
+              <th className="py-1.5 text-left font-normal">Epoch</th>
               <th className="py-1.5 text-right font-normal">
                 {unit === "sats" ? "sats" : "BTC"}
               </th>
               <th
                 className="py-1.5 text-right font-normal"
-                title="Average $/BTC paid this year — always a USD price (the dollar sign is part of the meaning)."
+                title="Average $/BTC paid in this epoch — always a USD price."
               >
                 Avg buy
               </th>
@@ -29,7 +45,7 @@ export function YearlyTable({ rows }: { rows: YearRow[] }) {
               <th className="py-1.5 text-right font-normal">ROI</th>
               <th
                 className="py-1.5 text-right font-normal"
-                title="Annualized return on capital invested in this year — CAGR derived from the dollar-weighted average days each buy has been held."
+                title="Annualized return on capital invested in this epoch — CAGR derived from the dollar-weighted average days each buy has been held."
               >
                 Annual ROI
               </th>
@@ -37,24 +53,22 @@ export function YearlyTable({ rows }: { rows: YearRow[] }) {
           </thead>
           <tbody>
             {rows.map((r) => {
-              const isTotal = r.year === "Total";
+              const isTotal = r.label === "Total";
               return (
                 <tr
-                  key={r.year}
+                  key={r.label}
                   className={
                     isTotal
                       ? "border-t border-edge font-medium text-ink"
                       : "text-ink"
                   }
                 >
-                  <td className="py-1.5 text-left">{r.year}</td>
+                  <td className="py-1.5 text-left">{r.label}</td>
                   <td className="py-1.5 text-right font-mono">
                     {unit === "sats"
                       ? formatBtcValue(r.btc, "sats")
                       : r.btc.toFixed(4)}
                   </td>
-                  {/* Avg buy is an exchange-rate ($/BTC), not a portfolio
-                      dollar figure — keep it in USD regardless of toggle. */}
                   <td className="py-1.5 text-right font-mono">
                     {formatUsd(r.avgBuyPrice)}
                   </td>

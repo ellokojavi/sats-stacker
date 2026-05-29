@@ -1,5 +1,8 @@
+"use client";
+
 import type { Lot } from "@/lib/types";
-import { formatUsd, formatPct, formatDateShort } from "@/lib/format";
+import { formatPct, formatDateShort, formatValue } from "@/lib/format";
+import { useUnit } from "@/lib/unit";
 import { Panel } from "./Panel";
 
 function LotList({
@@ -11,6 +14,7 @@ function LotList({
   label: string;
   accent: string;
 }) {
+  const { unit, price } = useUnit();
   return (
     <div>
       <div className="mb-1.5 text-[11px]" style={{ color: accent }}>
@@ -26,7 +30,7 @@ function LotList({
           </span>
           <span className="flex gap-3 font-mono">
             <span className={l.profit >= 0 ? "text-up" : "text-down"}>
-              {formatUsd(l.profit)}
+              {formatValue(l.profit, unit, price)}
             </span>
             <span
               className={`w-16 text-right ${l.roi >= 0 ? "text-up" : "text-down"}`}

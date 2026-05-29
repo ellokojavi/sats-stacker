@@ -11,3 +11,39 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* Time machine slider — brand-orange thumb on a thin dark track. Tailwind
+   doesn't ship range-thumb utilities so this is plain CSS. */
+.time-machine-range {
+  appearance: none;
+  height: 4px;
+  background: #232830;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+}
+.time-machine-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #f7931a;
+  border: 2px solid #0d0f12;
+  box-shadow: 0 0 0 1px #f7931a;
+  cursor: grab;
+}
+.time-machine-range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+}
+.time-machine-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #f7931a;
+  border: 2px solid #0d0f12;
+  box-shadow: 0 0 0 1px #f7931a;
+  cursor: grab;
+}
+.time-machine-range:focus-visible {
+  box-shadow: 0 0 0 2px rgba(247, 147, 26, 0.4);
+}

@@ -1,5 +1,8 @@
+"use client";
+
 import type { ViewMode } from "@/lib/types";
 import { formatUsd, formatDate } from "@/lib/format";
+import { useUnit } from "@/lib/unit";
 
 export function TopBar({
   mode,
@@ -14,6 +17,7 @@ export function TopBar({
   live: boolean;
   asOf: string;
 }) {
+  const { unit, setUnit } = useUnit();
   return (
     <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <div className="flex h-7 w-7 items-center justify-center rounded-full bg-bitcoin text-[15px] font-medium text-night">
@@ -75,6 +79,42 @@ export function TopBar({
           {live ? "live price" : `as of ${formatDate(asOf)}`}
         </span>
       </a>
+
+      {/* Denomination toggle. Sits on its own line under the header strip so
+          it doesn't fight the live-price chip for the right edge on mobile,
+          but visually anchors next to the price chip on desktop via the
+          `basis-full` + `md:ml-auto` pairing. */}
+      <div
+        className="ml-auto flex items-center rounded-full border border-edge p-0.5"
+        role="group"
+        aria-label="Denomination"
+        title="Flip every dollar figure on the dashboard between USD and satoshis (sats). BTC quantities convert at the live price."
+      >
+        <button
+          type="button"
+          onClick={() => setUnit("usd")}
+          aria-pressed={unit === "usd"}
+          className={`rounded-full px-2.5 py-0.5 text-[11px] transition-colors ${
+            unit === "usd"
+              ? "bg-ink/10 text-ink"
+              : "text-muted hover:text-ink"
+          }`}
+        >
+          USD
+        </button>
+        <button
+          type="button"
+          onClick={() => setUnit("sats")}
+          aria-pressed={unit === "sats"}
+          className={`rounded-full px-2.5 py-0.5 text-[11px] transition-colors ${
+            unit === "sats"
+              ? "bg-bitcoin/20 text-bitcoin"
+              : "text-muted hover:text-ink"
+          }`}
+        >
+          sats
+        </button>
+      </div>
     </header>
   );
 }

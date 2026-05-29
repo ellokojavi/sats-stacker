@@ -1,5 +1,5 @@
-import type { EtlStats } from "@/lib/types";
-import { formatDate } from "@/lib/format";
+import type { DataQualitySummary, EtlStats } from "@/lib/types";
+import { formatDate, formatUsd } from "@/lib/format";
 import { Panel } from "./Panel";
 
 /**
@@ -25,6 +25,7 @@ export function ImportSummary({
   stats,
   title = "Import summary",
   intro,
+  dataQuality,
   onRemoveFile,
   onClearUnrecognized,
 }: {
@@ -32,6 +33,13 @@ export function ImportSummary({
   title?: string;
   /** Optional one-line context shown above the headline stats. */
   intro?: string;
+  /**
+   * Optional ETL anomaly summary — flagged transactions whose implied
+   * $/BTC diverges from market price. When provided, renders a Data
+   * Quality block under the headline stats. The ETL story isn't just
+   * "we transformed" — it's "we transformed and verified."
+   */
+  dataQuality?: DataQualitySummary;
   /**
    * When provided, the "By file" table shows an X button on unrecognized
    * rows. The handler is called with the row's index in `stats.files`.
@@ -89,6 +97,8 @@ export function ImportSummary({
           </>
         )}
       </p>
+
+      {dataQuality && <DataQuality summary={dataQuality} />}
 
       {stats.byExchange.length > 0 && (
         <div className="mt-4">
@@ -219,6 +229,137 @@ function Stat({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div className="mt-0.5 font-mono text-[14px] text-ink">{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Anomaly block. The headline story is the count + threshold; the table
+ * is the receipt. We list at most five offenders to keep the panel
+ * scannable — the underlying API caps the array at topN anyway.
+ */
+function DataQuality({ summary }: { summary: DataQualitySummary }) {
+  const thresholdPct = (summary.anomalyPctThreshold * 100).toFixed(0);
+  const status =
+    summary.checkedCount === 0
+      ? "no-data"
+      : summary.anomalyCount === 0
+        ? "clean"
+        : "anomalies";
+
+  return (
+    <div className="mt-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-[11px] uppercase tracking-wider text-muted">
+          Data quality
+        </h3>
+        <span
+          className="text-[11px] text-faint"
+          title={`Cross-check: every transaction's implied $/BTC compared to the bundled BTC price for that day. Rows diverging by more than ${thresholdPct}% are flagged — usually a fee misallocation or a normalizer mis-mapping a field.`}
+        >
+          ETL cross-check ·{" "}
+          <span className="text-muted">≥{thresholdPct}% off market</span>
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat
+          label="Anomalies"
+          value={summary.anomalyCount.toLocaleString()}
+        />
+        <Stat
+          label="Checked"
+          value={summary.checkedCount.toLocaleString()}
+        />
+        <Stat
+          label="Unchecked"
+          value={summary.uncheckedCount.toLocaleString()}
+        />
+        <Stat
+          label="Status"
+          value={
+            status === "no-data"
+              ? "—"
+              : status === "clean"
+                ? "Clean"
+                : "Flagged"
+          }
+        />
+      </div>
+
+      {status === "clean" && (
+        <p className="mt-2 text-[11px] text-faint">
+          Every priced transaction&apos;s implied $/BTC lands within{" "}
+          {thresholdPct}% of the market price on its day — no fee leaks or
+          normalizer mis-mappings detected.
+        </p>
+      )}
+
+      {summary.uncheckedCount > 0 && summary.anomalyCount === 0 && (
+        <p className="mt-2 text-[11px] text-faint">
+          {summary.uncheckedCount} transaction
+          {summary.uncheckedCount === 1 ? "" : "s"} couldn&apos;t be checked —
+          missing price-history coverage for that date or zero-amount rows.
+        </p>
+      )}
+
+      {summary.anomalies.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full border-collapse text-[12px]">
+            <thead>
+              <tr className="text-muted">
+                <th className="py-1.5 text-left font-normal">Date</th>
+                <th className="py-1.5 text-left font-normal">Source</th>
+                <th
+                  className="py-1.5 text-right font-normal"
+                  title="The row's $/BTC implied by its USD ÷ BTC columns."
+                >
+                  Implied $/BTC
+                </th>
+                <th
+                  className="py-1.5 text-right font-normal"
+                  title="Market $/BTC on the row's date from the bundled price history."
+                >
+                  Market $/BTC
+                </th>
+                <th className="py-1.5 text-right font-normal">Divergence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.anomalies.map((a) => (
+                <tr key={a.id || `${a.date}-${a.source}`} className="text-ink">
+                  <td className="py-1.5 text-left font-mono text-muted">
+                    {formatDate(a.date)}
+                  </td>
+                  <td className="py-1.5 text-left">{a.source}</td>
+                  <td className="py-1.5 text-right font-mono">
+                    {formatUsd(a.impliedPrice)}
+                  </td>
+                  <td className="py-1.5 text-right font-mono text-muted">
+                    {formatUsd(a.marketPrice)}
+                  </td>
+                  <td
+                    className={`py-1.5 text-right font-mono ${
+                      a.divergence >= 0 ? "text-down" : "text-up"
+                    }`}
+                    title="Positive means the row paid more per BTC than the market that day — usually a fee leak."
+                  >
+                    {(a.divergence >= 0 ? "+" : "") +
+                      (a.divergence * 100).toFixed(1) +
+                      "%"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {summary.anomalyCount > summary.anomalies.length && (
+            <p className="mt-2 text-[11px] text-faint">
+              Showing top {summary.anomalies.length} of {summary.anomalyCount}{" "}
+              flagged transactions.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

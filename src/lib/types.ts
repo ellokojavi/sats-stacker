@@ -2,6 +2,17 @@ export type DataSource = "demo" | "private" | "imported";
 
 export type ViewMode = "demo" | "real";
 
+/**
+ * Denomination unit for dollar-valued figures across the dashboard.
+ *
+ *   • "usd"  — show as US dollars (default; what every component used to do)
+ *   • "sats" — convert via the current BTC price into satoshis (1 BTC = 100M sats)
+ *
+ * Pure BTC quantities (stack size, per-buy BTC) always render in BTC and
+ * are unaffected by this toggle.
+ */
+export type Unit = "usd" | "sats";
+
 export interface Transaction {
   id: string;
   date: string;
@@ -117,6 +128,61 @@ export interface YearRow {
    * extrapolations.
    */
   annualizedRoi: number | null;
+}
+
+/**
+ * A bitcoin-native bucketing of buys by halving epoch. Speaks the language
+ * of the audience the dashboard implicitly addresses — "what cycle did you
+ * buy in" is the real question, not "what year."
+ */
+export interface CycleRow {
+  /** Display label, e.g. "Epoch 3 (2016–2020)" or "Total". */
+  label: string;
+  /** ISO date the epoch starts, or null on the Total row. */
+  startDate: string | null;
+  /** ISO date the epoch ends (exclusive), or null on the Total row. */
+  endDate: string | null;
+  btc: number;
+  usd: number;
+  avgBuyPrice: number;
+  currentValue: number;
+  profit: number;
+  roi: number;
+  annualizedRoi: number | null;
+}
+
+/**
+ * ETL data-quality summary. Lights up the Settings → Import summary with a
+ * "we transformed *and* verified" story.
+ */
+export interface DataQualitySummary {
+  /** Transactions whose implied $/BTC diverges from market price by > anomalyPctThreshold. */
+  anomalyCount: number;
+  /** Threshold used (0.05 = 5%). */
+  anomalyPctThreshold: number;
+  /** Total transactions checked (excludes rows we couldn't price-check). */
+  checkedCount: number;
+  /** Transactions we couldn't price-check (no price-history point near the date). */
+  uncheckedCount: number;
+  /**
+   * Up to N worst-offender rows for display. Sorted by absolute divergence
+   * descending.
+   */
+  anomalies: AnomalyRow[];
+}
+
+export interface AnomalyRow {
+  id: string;
+  date: string;
+  source: string;
+  btc: number;
+  usd: number;
+  /** Buy's implied $/BTC. */
+  impliedPrice: number;
+  /** Market $/BTC on that date, from the bundled price history. */
+  marketPrice: number;
+  /** (implied − market) / market. Signed. */
+  divergence: number;
 }
 
 export interface TierRow {

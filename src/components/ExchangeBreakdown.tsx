@@ -1,5 +1,8 @@
+"use client";
+
 import type { ExchangeRow } from "@/lib/types";
-import { formatUsd, formatPct } from "@/lib/format";
+import { formatUsd, formatPct, formatValue, formatBtcValue } from "@/lib/format";
+import { useUnit } from "@/lib/unit";
 import { Panel } from "./Panel";
 
 /**
@@ -7,8 +10,13 @@ import { Panel } from "./Panel";
  * exceeds the available width, so the container scrolls horizontally and
  * the first column (exchange name) is sticky — the user can scroll right
  * to see ROI without losing their place.
+ *
+ * Avg cost is a $/BTC exchange-rate; like the Yearly table's Avg buy
+ * column, it stays in USD regardless of the denomination toggle —
+ * "sats per sat" is not a meaningful unit.
  */
 export function ExchangeBreakdown({ rows }: { rows: ExchangeRow[] }) {
+  const { unit, price } = useUnit();
   return (
     <Panel title="Per-exchange breakdown">
       <div className="overflow-x-auto">
@@ -19,7 +27,9 @@ export function ExchangeBreakdown({ rows }: { rows: ExchangeRow[] }) {
                 Exchange
               </th>
               <th className="py-1.5 text-right font-normal">Buys</th>
-              <th className="py-1.5 text-right font-normal">BTC</th>
+              <th className="py-1.5 text-right font-normal">
+                {unit === "sats" ? "sats" : "BTC"}
+              </th>
               <th className="py-1.5 text-right font-normal">Invested</th>
               <th className="py-1.5 text-right font-normal">Value</th>
               <th className="py-1.5 text-right font-normal">Avg cost</th>
@@ -34,13 +44,15 @@ export function ExchangeBreakdown({ rows }: { rows: ExchangeRow[] }) {
                 </td>
                 <td className="py-1.5 text-right font-mono">{r.count}</td>
                 <td className="py-1.5 text-right font-mono">
-                  {r.btc.toFixed(4)}
+                  {unit === "sats"
+                    ? formatBtcValue(r.btc, "sats")
+                    : r.btc.toFixed(4)}
                 </td>
                 <td className="py-1.5 text-right font-mono">
-                  {formatUsd(r.invested)}
+                  {formatValue(r.invested, unit, price)}
                 </td>
                 <td className="py-1.5 text-right font-mono">
-                  {formatUsd(r.currentValue)}
+                  {formatValue(r.currentValue, unit, price)}
                 </td>
                 <td className="py-1.5 text-right font-mono">
                   {formatUsd(r.avgCost)}

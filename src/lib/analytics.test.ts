@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computeYearly } from "./analytics";
-import type { Transaction } from "./types";
+import {
+  computeYearly,
+  computeHalvingCohorts,
+  computeDataQuality,
+} from "./analytics";
+import type { PricePoint, Transaction } from "./types";
 
 /** Tiny helper — build a Transaction with sane defaults. */
 function tx(date: string, usd: number, btc: number): Transaction {
@@ -72,5 +76,118 @@ describe("computeYearly — annualized ROI per bucket", () => {
     // than the 2025 buy (~366 days). With $1100 invested → 0.051 BTC →
     // value at $80k = $4080, the CAGR is well-defined and positive.
     expect(total.annualizedRoi! > 0).toBe(true);
+  });
+});
+
+describe("computeHalvingCohorts — bucketing by halving epoch", () => {
+  it("buckets a buy into the epoch that contains its date", () => {
+    // 2021-06-15 falls in Epoch 4 (2020-05-11 → 2024-04-19).
+    const txns = [tx("2021-06-15", 1000, 0.025)];
+    const rows = computeHalvingCohorts(txns, 80_000, "2026-05-29");
+    // One epoch row + the Total row.
+    expect(rows).toHaveLength(2);
+    expect(rows[0].label).toBe("Epoch 4 (2020–2024)");
+    expect(rows[0].btc).toBeCloseTo(0.025);
+    expect(rows[0].usd).toBeCloseTo(1000);
+  });
+
+  it("treats halving day as the start of the new epoch (exclusive endDate)", () => {
+    // Halving #3 fell on 2020-05-11 → that day belongs to Epoch 4, not Epoch 3.
+    const txns = [tx("2020-05-11", 100, 0.01)];
+    const rows = computeHalvingCohorts(txns, 50_000, "2024-01-01");
+    const e4 = rows.find((r) => r.label.startsWith("Epoch 4"));
+    const e3 = rows.find((r) => r.label.startsWith("Epoch 3"));
+    expect(e4).toBeDefined();
+    expect(e3).toBeUndefined();
+  });
+
+  it("omits epochs with no buys", () => {
+    // Only one Epoch 4 buy → output is one epoch row + Total, no empty padding.
+    const txns = [tx("2022-01-01", 100, 0.005)];
+    const rows = computeHalvingCohorts(txns, 100_000, "2026-01-01");
+    expect(rows.map((r) => r.label)).toEqual([
+      "Epoch 4 (2020–2024)",
+      "Total",
+    ]);
+  });
+
+  it("sums BTC and USD across epochs into the Total row", () => {
+    const txns = [
+      tx("2017-03-01", 500, 0.5), // Epoch 3
+      tx("2022-07-01", 1500, 0.05), // Epoch 4
+    ];
+    const rows = computeHalvingCohorts(txns, 100_000, "2026-01-01");
+    const total = rows.find((r) => r.label === "Total")!;
+    expect(total.btc).toBeCloseTo(0.55);
+    expect(total.usd).toBeCloseTo(2000);
+    expect(total.currentValue).toBeCloseTo(55_000);
+    expect(total.profit).toBeCloseTo(53_000);
+  });
+});
+
+describe("computeDataQuality — ETL anomaly detection", () => {
+  // A small daily price series for tests.
+  const prices: PricePoint[] = [
+    { date: "2024-01-01", price: 40_000 },
+    { date: "2024-01-08", price: 42_000 },
+    { date: "2024-01-15", price: 45_000 },
+  ];
+
+  it("flags a transaction whose implied $/BTC diverges by > 5% from market", () => {
+    // Buy on 2024-01-08 at market $42k → $420 / 0.01 BTC = $42k implied (no anomaly).
+    // Buy on 2024-01-08 at $500 / 0.01 BTC = $50k implied → +19% vs market (flag).
+    const txns: Transaction[] = [
+      tx("2024-01-08", 420, 0.01),
+      tx("2024-01-08", 500, 0.01),
+    ];
+    const dq = computeDataQuality(txns, prices);
+    expect(dq.checkedCount).toBe(2);
+    expect(dq.anomalyCount).toBe(1);
+    expect(dq.anomalies[0].divergence).toBeGreaterThan(0.15);
+  });
+
+  it("uses the nearest price-day at or before the transaction date", () => {
+    // Bundled series is weekly; a Wed buy snaps back to Mon's close.
+    // 2024-01-10 (Wed) → uses 2024-01-08 ($42k). $420 / 0.01 = $42k → no flag.
+    const txns: Transaction[] = [tx("2024-01-10", 420, 0.01)];
+    const dq = computeDataQuality(txns, prices);
+    expect(dq.anomalyCount).toBe(0);
+    expect(dq.checkedCount).toBe(1);
+  });
+
+  it("counts pre-history transactions as unchecked, not anomalies", () => {
+    // The earliest price-point is 2024-01-01; a buy before that has no
+    // baseline to compare against → uncheckedCount += 1, not flagged.
+    const txns: Transaction[] = [tx("2023-06-01", 100, 0.005)];
+    const dq = computeDataQuality(txns, prices);
+    expect(dq.checkedCount).toBe(0);
+    expect(dq.uncheckedCount).toBe(1);
+    expect(dq.anomalyCount).toBe(0);
+  });
+
+  it("returns worst offenders first, capped at topN", () => {
+    // Three flagged rows, increasing divergence; topN=2 should return the
+    // two biggest divergences, biggest first.
+    const txns: Transaction[] = [
+      tx("2024-01-01", 480, 0.01), // implied $48k vs $40k → +20%
+      tx("2024-01-01", 600, 0.01), // implied $60k vs $40k → +50%
+      tx("2024-01-01", 440, 0.01), // implied $44k vs $40k → +10%
+    ];
+    const dq = computeDataQuality(txns, prices, 0.05, 2);
+    expect(dq.anomalyCount).toBe(3);
+    expect(dq.anomalies).toHaveLength(2);
+    expect(dq.anomalies[0].divergence).toBeCloseTo(0.5);
+    expect(dq.anomalies[1].divergence).toBeCloseTo(0.2);
+  });
+
+  it("ignores zero-BTC or zero-USD rows (can't compute implied price)", () => {
+    const txns: Transaction[] = [
+      tx("2024-01-08", 0, 0.01),
+      tx("2024-01-08", 100, 0),
+    ];
+    const dq = computeDataQuality(txns, prices);
+    expect(dq.checkedCount).toBe(0);
+    expect(dq.uncheckedCount).toBe(2);
+    expect(dq.anomalyCount).toBe(0);
   });
 });
