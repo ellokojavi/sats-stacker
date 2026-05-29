@@ -3,15 +3,20 @@ import { formatUsd, formatPct, formatBtc } from "@/lib/format";
 import { MetricCard } from "./MetricCard";
 
 /**
- * Headline KPI strip. On mobile the cards stack 2-wide so each one stays
- * thumb-tappable instead of squeezing 7 cards into one line; the breakpoint
- * ladder lifts that to 4-wide on tablet (sm) and 7-wide on desktop (lg) so
- * the strip becomes a single row when there's room.
+ * Headline KPI strip. Layout ladder:
+ *   • mobile  → 2 cards / row (cards stay thumb-tappable; 4 rows of 7 cards)
+ *   • sm+     → 3 cards / row
+ *   • lg+     → 4 cards / row (two rows of clean readable cards)
+ *
+ * An earlier version tried 7-per-row at lg to make the strip a single line,
+ * but at max-w-5xl that leaves each card under 145px wide — long values like
+ * "$1,386,959" and labels like "Break-even distance" wrap unflatteringly.
+ * Two rows of comfortably-sized cards reads better than one cramped row.
  */
 export function SnapshotGrid({ snapshot }: { snapshot: Snapshot }) {
   const s = snapshot;
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
       <MetricCard label="Total stack" value={formatBtc(s.totalBtc)} />
       <MetricCard label="Net invested" value={formatUsd(s.totalInvested)} />
       <MetricCard label="Current value" value={formatUsd(s.currentValue)} />
