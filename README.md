@@ -14,6 +14,8 @@ Cost basis, ROI, capital efficiency, the Bitcoin Power Law, and cost-basis tax e
 
 </div>
 
+![sats-stacker overview dashboard](docs/screenshots/01-overview-hero.png)
+
 ---
 
 ## Overview
@@ -138,6 +140,37 @@ Reports are organized into six tabs, with the headline KPIs pinned above them:
 
 **Live BTC price** — fetched server-side at page render (60-second ISR cache) so headline numbers are correct on first load with no flicker. A background client-side poll refreshes every 60 seconds, so charts and tables stay current during long sessions. A pulsing price chip in the header links directly to CoinGecko.
 
+## Screenshots
+
+All shots are captured against the bundled synthetic dataset — never real holdings. Regen with `npm run screenshots` (see [`docs/screenshots/`](docs/screenshots/)).
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <b>Performance</b><br />
+      <sub>Submarine chart, yearly + halving-cycle cohorts, profitability distribution, capital-weighted CAGR vs. benchmarks.</sub><br /><br />
+      <a href="docs/screenshots/02-performance.png"><img src="docs/screenshots/02-performance.png" alt="Performance tab" /></a>
+    </td>
+    <td width="50%" valign="top">
+      <b>Power Law</b><br />
+      <sub>Log-log fit against Bitcoin's historical trend, slope β / R², bear/base/bull forward bands, DCA-pace overlay.</sub><br /><br />
+      <a href="docs/screenshots/03-power-law.png"><img src="docs/screenshots/03-power-law.png" alt="Power Law tab" /></a>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <b>Tax</b><br />
+      <sub>Holding-period breakdown plus a FIFO / LIFO / HIFO sell simulator with editable inputs and short/long-term gain split.</sub><br /><br />
+      <a href="docs/screenshots/04-tax.png"><img src="docs/screenshots/04-tax.png" alt="Tax tab" /></a>
+    </td>
+    <td width="50%" valign="top">
+      <b>What If?</b><br />
+      <sub>Your actual DCA vs. five counterfactual strategies — lump-sum, weekly, monthly, quarterly, and halving-anchored buys.</sub><br /><br />
+      <a href="docs/screenshots/05-whatif.png"><img src="docs/screenshots/05-whatif.png" alt="What If? tab" /></a>
+    </td>
+  </tr>
+</table>
+
 ## Tech stack
 
 - **Next.js 14** (App Router) and **React 18**
@@ -190,8 +223,11 @@ sats-stacker/
 │   │   └── Strike/ Coinbase/ CashApp/ Swan/
 │   ├── private/                drop your real exports here (git-ignored)
 │   └── btc_price_history.json  weekly BTC price series (2011-present)
+├── docs/
+│   └── screenshots/            README hero + per-tab screenshots
 ├── scripts/
-│   └── generate_data.py        deterministic synthetic-export generator
+│   ├── generate_data.py        deterministic synthetic-export generator
+│   └── capture_screenshots.mjs Playwright capture for docs/screenshots/
 ├── src/
 │   ├── app/                    Next.js App Router — dashboard + /price route
 │   ├── components/             dashboard, tabs, panels, charts, tables, import
