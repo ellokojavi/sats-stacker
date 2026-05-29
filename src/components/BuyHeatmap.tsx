@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Transaction } from "@/lib/types";
 import { formatUsd, formatBtc, formatDate } from "@/lib/format";
 import { Panel } from "./Panel";
@@ -8,32 +8,30 @@ import { Panel } from "./Panel";
 const DAY_MS = 86400000;
 const CELL_PX = 12;
 const GAP_PX = 2;
+const STRIDE_PX = CELL_PX + GAP_PX; // px per week column
 const ROWS = 7;
-const MONTH_LABELS = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
 
 interface DayCell {
   date: string;
-  weekday: number; // 0 = Sun … 6 = Sat (so first row = Sun, matches GH)
-  week: number; // 0-based column index
-  month: number; // 0-based
+  weekday: number; // 0 = Sun … 6 = Sat (matches GitHub: first row = Sun)
+  week: number; // 0-based column index into the FULL timeline (not per-year)
+  year: number;
   usd: number;
   btc: number;
   buyCount: number;
   sources: string[]; // unique exchange names, in insertion order
   avgPrice: number; // capital-weighted average buy price (USD / BTC)
+}
+
+interface YearRange {
+  /** Inclusive start column index into the full timeline. */
+  startWeek: number;
+  /** Inclusive end column index. */
+  endWeek: number;
+  /** Pixel position of the year's first column (for scrollTo). */
+  startPx: number;
+  /** Pixel position one past the year's last column. */
+  endPx: number;
 }
 
 /** Compact USD formatter for the legend ladder — "$1.2K" instead of "$1,234".
@@ -47,20 +45,24 @@ function formatUsdCompact(n: number): string {
 }
 
 /** Map a USD amount → cell color. sqrt scale keeps small buys visible without
- *  letting one giant buy wash out the rest of the year. */
-function cellColor(usd: number, yearMax: number): string {
-  if (usd <= 0 || yearMax <= 0) return "#1c2128";
-  const intensity = Math.min(1, Math.sqrt(usd / yearMax));
+ *  letting one giant buy wash out the rest of the timeline. */
+function cellColor(usd: number, max: number): string {
+  if (usd <= 0 || max <= 0) return "#1c2128";
+  const intensity = Math.min(1, Math.sqrt(usd / max));
   const opacity = 0.22 + intensity * 0.78;
   return `rgba(247, 147, 26, ${opacity})`;
 }
 
-/** GitHub-style buy heatmap. One square per day, intensity = USD invested that
- *  day, year-picker chips above. Reads "screenshot-y" at a glance. */
+/**
+ * GitHub-style buy heatmap, but rendered as one continuous horizontally-
+ * scrollable timeline spanning every year from first buy → today. Year chips
+ * above act as quick-jump navigation: click one to scroll the grid to that
+ * year, and the chip whose year currently dominates the viewport lights up
+ * as the user scrolls.
+ */
 export function BuyHeatmap({ txns }: { txns: Transaction[] }) {
   // ── Aggregate per-day USD / BTC / count / sources for every buy. Cached
-  //    once so flipping years doesn't re-walk the txn list, and the tooltip
-  //    has everything it needs in one lookup.
+  //    once so the tooltip has everything it needs in one lookup.
   const byDate = useMemo(() => {
     const m = new Map<
       string,
@@ -79,98 +81,190 @@ export function BuyHeatmap({ txns }: { txns: Transaction[] }) {
     return m;
   }, [txns]);
 
-  // Years with at least one buy, ascending.
-  const years = useMemo(() => {
-    const set = new Set<number>();
+  // First-buy year and "today" (latest known date) bound the timeline.
+  // We anchor the start at January 1 of the first-buy year so the timeline
+  // includes the calendar context before the first buy, and stop at the
+  // current real-world date.
+  const { firstYear, lastYear, lastDateMs } = useMemo(() => {
+    let firstMs = Infinity;
     for (const t of txns) {
       if (t.usd <= 0) continue;
-      set.add(parseInt(t.date.slice(0, 4)));
+      const ms = new Date(t.date.slice(0, 10) + "T00:00:00Z").getTime();
+      if (ms < firstMs) firstMs = ms;
     }
-    return [...set].sort();
+    const todayMs = Date.now();
+    if (!Number.isFinite(firstMs)) {
+      return {
+        firstYear: new Date(todayMs).getUTCFullYear(),
+        lastYear: new Date(todayMs).getUTCFullYear(),
+        lastDateMs: todayMs,
+      };
+    }
+    return {
+      firstYear: new Date(firstMs).getUTCFullYear(),
+      lastYear: new Date(todayMs).getUTCFullYear(),
+      lastDateMs: todayMs,
+    };
   }, [txns]);
 
-  const [year, setYear] = useState<number>(
-    () => years[years.length - 1] ?? new Date().getUTCFullYear(),
-  );
-
-  // Build the calendar grid for the selected year. Each cell knows its
-  // weekday (row), week index (column), and dollar amount.
-  const { cells, weekCount, monthSpans } = useMemo(() => {
+  // Walk every day from Jan 1 of the first-buy year through today and lay it
+  // out on the 7-row × N-week grid. GitHub anchors weeks to Sunday: a new
+  // column starts whenever we hit a Sunday. `yearRanges` records each year's
+  // column span so we can drive the navigation chips and scroll-to-year.
+  const { cells, weekCount, yearRanges, globalMax, globalStats } = useMemo(() => {
     const cells: DayCell[] = [];
-    const monthSpans: { month: number; startWeek: number; weeks: number }[] =
-      [];
-    const yearStartMs = Date.UTC(year, 0, 1);
-    const yearEndMs = Date.UTC(year + 1, 0, 1);
-    // Anchor the first column so that the first cell sits in the right
-    // weekday row (Sun = 0). GitHub anchors weeks to Sunday; we do too.
-    const startWeekday = new Date(yearStartMs).getUTCDay();
+    const yearRanges = new Map<number, YearRange>();
+    const startMs = Date.UTC(firstYear, 0, 1);
+    // Walk day-by-day; convert to ISO and compute weekday + week.
     let week = 0;
-    let monthStartWeek = 0;
-    let lastMonth = -1;
-
-    for (let t = yearStartMs; t < yearEndMs; t += DAY_MS) {
+    let max = 0;
+    let totalBuys = 0;
+    let totalUsd = 0;
+    let totalActiveDays = 0;
+    for (let t = startMs; t <= lastDateMs; t += DAY_MS) {
       const dt = new Date(t);
       const weekday = dt.getUTCDay();
+      const year = dt.getUTCFullYear();
+      // Advance the week counter every Sunday after day 0.
+      if (weekday === 0 && t > startMs) week += 1;
       const dateStr = dt.toISOString().slice(0, 10);
-      // Advance the week index every Sunday (except the first day of the
-      // year if it's a Sunday).
-      if (weekday === 0 && t > yearStartMs) week += 1;
-      // First day of year sits in the right row offset by startWeekday;
-      // every subsequent week starts in row 0 (Sun).
-      const month = dt.getUTCMonth();
-      if (month !== lastMonth) {
-        if (lastMonth >= 0) {
-          monthSpans.push({
-            month: lastMonth,
-            startWeek: monthStartWeek,
-            weeks: week - monthStartWeek + (weekday === 0 ? 0 : 1),
-          });
-        }
-        monthStartWeek = week;
-        lastMonth = month;
-      }
       const day = byDate.get(dateStr);
+      const usd = day?.usd ?? 0;
+      const btc = day?.btc ?? 0;
       cells.push({
         date: dateStr,
         weekday,
         week,
-        month,
-        usd: day?.usd ?? 0,
-        btc: day?.btc ?? 0,
+        year,
+        usd,
+        btc,
         buyCount: day?.count ?? 0,
         sources: day?.sources ?? [],
         avgPrice: day && day.btc > 0 ? day.usd / day.btc : 0,
       });
-    }
-    // Push the final month's span.
-    if (lastMonth >= 0) {
-      monthSpans.push({
-        month: lastMonth,
-        startWeek: monthStartWeek,
-        weeks: week - monthStartWeek + 1,
-      });
-    }
-    return { cells, weekCount: week + 1, monthSpans, startWeekday };
-  }, [year, byDate]);
-
-  // Per-year totals used for the legend and the color scale's upper bound.
-  const yearStats = useMemo(() => {
-    let total = 0;
-    let max = 0;
-    let buys = 0;
-    let activeDays = 0;
-    for (const c of cells) {
-      total += c.usd;
-      if (c.usd > 0) {
-        activeDays += 1;
-        buys += c.buyCount;
-        if (c.usd > max) max = c.usd;
+      if (usd > 0) {
+        totalActiveDays += 1;
+        totalBuys += day?.count ?? 0;
+        totalUsd += usd;
+        if (usd > max) max = usd;
+      }
+      // Track each year's column span. The first cell of a year defines its
+      // start; the last cell of a year defines its end.
+      const existing = yearRanges.get(year);
+      if (!existing) {
+        yearRanges.set(year, {
+          startWeek: week,
+          endWeek: week,
+          startPx: week * STRIDE_PX,
+          endPx: (week + 1) * STRIDE_PX,
+        });
+      } else {
+        existing.endWeek = week;
+        existing.endPx = (week + 1) * STRIDE_PX;
       }
     }
-    return { total, max, buys, activeDays };
+    return {
+      cells,
+      weekCount: week + 1,
+      yearRanges,
+      globalMax: max,
+      globalStats: {
+        buys: totalBuys,
+        usd: totalUsd,
+        activeDays: totalActiveDays,
+      },
+    };
+  }, [byDate, firstYear, lastDateMs]);
+
+  const allYears = useMemo(() => {
+    const out: number[] = [];
+    for (let y = firstYear; y <= lastYear; y += 1) out.push(y);
+    return out;
+  }, [firstYear, lastYear]);
+
+  // Per-year aggregate stats — looked up for the active year's caption.
+  const yearStats = useMemo(() => {
+    const m = new Map<
+      number,
+      { buys: number; usd: number; activeDays: number; max: number }
+    >();
+    for (const c of cells) {
+      const e = m.get(c.year) ?? { buys: 0, usd: 0, activeDays: 0, max: 0 };
+      if (c.usd > 0) {
+        e.buys += c.buyCount;
+        e.usd += c.usd;
+        e.activeDays += 1;
+        if (c.usd > e.max) e.max = c.usd;
+      }
+      m.set(c.year, e);
+    }
+    return m;
   }, [cells]);
 
-  const gridWidth = weekCount * CELL_PX + (weekCount - 1) * GAP_PX;
+  // Active year follows the scroll position. Starts on the latest year so the
+  // user lands on recent activity.
+  const [activeYear, setActiveYear] = useState<number>(lastYear);
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Programmatic scrolls fired by clicking a year chip should still trigger
+  // the onScroll handler — we use a frame-throttled tick to keep activeYear
+  // in sync without re-rendering on every scroll event.
+  const rafRef = useRef<number | null>(null);
+
+  const recomputeActiveYear = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const left = el.scrollLeft;
+    const right = left + el.clientWidth;
+    let bestYear = activeYear;
+    let bestOverlap = -1;
+    for (const y of allYears) {
+      const range = yearRanges.get(y);
+      if (!range) continue;
+      const overlap = Math.max(
+        0,
+        Math.min(right, range.endPx) - Math.max(left, range.startPx),
+      );
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestYear = y;
+      }
+    }
+    if (bestYear !== activeYear) setActiveYear(bestYear);
+  }, [activeYear, allYears, yearRanges]);
+
+  const handleScroll = useCallback(() => {
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      recomputeActiveYear();
+    });
+  }, [recomputeActiveYear]);
+
+  // On mount, jump to the latest year so the user lands on recent activity
+  // instead of staring at empty cells at the start of the timeline.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const range = yearRanges.get(lastYear);
+    if (range) el.scrollLeft = range.startPx;
+    // No deps — runs once on mount. `yearRanges` is stable as long as the
+    // ledger doesn't change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const scrollToYear = useCallback(
+    (y: number) => {
+      const el = scrollRef.current;
+      const range = yearRanges.get(y);
+      if (!el || !range) return;
+      el.scrollTo({ left: range.startPx, behavior: "smooth" });
+      // Smooth scrolling fires onScroll repeatedly — the rAF tick will catch
+      // up. Set immediately too so the chip lights up without a delay.
+      setActiveYear(y);
+    },
+    [yearRanges],
+  );
 
   // Hovered-cell state for the rich tooltip. We track the viewport coords of
   // the cursor (not the cell) so the tooltip can follow the mouse and never
@@ -182,24 +276,23 @@ export function BuyHeatmap({ txns }: { txns: Transaction[] }) {
   } | null>(null);
 
   /**
-   * Five legend bands. The color scale is `sqrt(usd / yearMax)` so each band's
-   * upper bound in USD comes from inverting that: usd = max × intensity².
-   * The labels read as "less than X" so they describe the cells the band
-   * covers, not a single sample.
+   * Five legend bands. The color scale is `sqrt(usd / globalMax)` so each
+   * band's upper bound in USD comes from inverting that: usd = max × intensity².
+   * Anchored to the global max (across every year) so a band's color reads
+   * as the same dollar amount regardless of which year is in view.
    */
   const legendBands = useMemo(() => {
-    const max = yearStats.max;
-    if (max <= 0) return [];
+    if (globalMax <= 0) return [];
     return [
       { intensity: 0, label: "0" },
-      { intensity: 0.25, label: `≤ ${formatUsdCompact(max * 0.0625)}` },
-      { intensity: 0.5, label: `≤ ${formatUsdCompact(max * 0.25)}` },
-      { intensity: 0.75, label: `≤ ${formatUsdCompact(max * 0.5625)}` },
-      { intensity: 1, label: `≤ ${formatUsdCompact(max)}` },
+      { intensity: 0.25, label: `≤ ${formatUsdCompact(globalMax * 0.0625)}` },
+      { intensity: 0.5, label: `≤ ${formatUsdCompact(globalMax * 0.25)}` },
+      { intensity: 0.75, label: `≤ ${formatUsdCompact(globalMax * 0.5625)}` },
+      { intensity: 1, label: `≤ ${formatUsdCompact(globalMax)}` },
     ];
-  }, [yearStats.max]);
+  }, [globalMax]);
 
-  if (years.length === 0) {
+  if (cells.length === 0) {
     return (
       <Panel title="Buy heatmap">
         <p className="text-[12px] text-muted">
@@ -209,52 +302,65 @@ export function BuyHeatmap({ txns }: { txns: Transaction[] }) {
     );
   }
 
+  const gridWidth = weekCount * STRIDE_PX - GAP_PX;
+  const activeStats = yearStats.get(activeYear);
+
   return (
     <Panel title="Buy heatmap">
-      {/* Year selector chips — same visual language as the date-range presets */}
+      {/* Year navigation chips — click to scroll to that year; the chip whose
+          year currently dominates the viewport lights up. */}
       <div className="mb-3 flex flex-wrap items-center gap-1">
-        {years.map((y) => (
+        {allYears.map((y) => (
           <button
             key={y}
             type="button"
-            onClick={() => setYear(y)}
+            onClick={() => scrollToYear(y)}
             className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
-              year === y
+              activeYear === y
                 ? "bg-bitcoin text-night"
                 : "bg-night text-muted hover:text-ink"
             }`}
-            aria-pressed={year === y}
+            aria-pressed={activeYear === y}
+            aria-label={`Scroll to ${y}`}
           >
             {y}
           </button>
         ))}
         <span className="ml-auto text-[11px] text-faint">
-          {yearStats.buys.toLocaleString()} buys ·{" "}
-          {formatUsd(yearStats.total)} invested · {yearStats.activeDays} active
-          day{yearStats.activeDays === 1 ? "" : "s"}
+          {activeStats && activeStats.activeDays > 0
+            ? `${activeStats.buys.toLocaleString()} buys · ${formatUsd(activeStats.usd)} invested · ${activeStats.activeDays} active day${activeStats.activeDays === 1 ? "" : "s"} in ${activeYear}`
+            : `No buys in ${activeYear}`}
         </span>
       </div>
 
-      {/* The grid itself scrolls horizontally when the viewport's too narrow.
-          On desktop the 53-week × 12px grid is ~750px and fits fine. */}
-      <div className="overflow-x-auto pb-1">
+      {/* The grid scrolls horizontally across the whole timeline. */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="overflow-x-auto pb-1"
+      >
         <div style={{ width: gridWidth }} className="inline-block">
-          {/* Month labels row — each label sits above the first week of its month */}
+          {/* Year labels inside the scroll container so they move with the
+              grid. Positioned absolutely at each year's first column. */}
           <div
             className="relative mb-1 h-3 text-[10px] text-faint"
             style={{ width: gridWidth }}
           >
-            {monthSpans.map((s) => (
-              <span
-                key={`${year}-${s.month}`}
-                className="absolute"
-                style={{
-                  left: s.startWeek * (CELL_PX + GAP_PX),
-                }}
-              >
-                {MONTH_LABELS[s.month]}
-              </span>
-            ))}
+            {allYears.map((y) => {
+              const range = yearRanges.get(y);
+              if (!range) return null;
+              return (
+                <span
+                  key={y}
+                  className={`absolute font-mono ${
+                    activeYear === y ? "text-ink" : ""
+                  }`}
+                  style={{ left: range.startPx }}
+                >
+                  {y}
+                </span>
+              );
+            })}
           </div>
 
           {/* The 7-row × N-week grid. CSS grid handles positioning via row /
@@ -269,8 +375,8 @@ export function BuyHeatmap({ txns }: { txns: Transaction[] }) {
           >
             {cells.map((c) => {
               // Only active (buy) cells get hover handlers. Empty days don't
-              // need a tooltip and would otherwise flicker "No buys" for the
-              // ~95% of cells that have nothing in them.
+              // need a tooltip and would otherwise flicker "no buys" past the
+              // cursor for the ~95% of cells that have nothing in them.
               const isActive = c.usd > 0;
               return (
                 <div
@@ -278,7 +384,7 @@ export function BuyHeatmap({ txns }: { txns: Transaction[] }) {
                   style={{
                     gridColumn: c.week + 1,
                     gridRow: c.weekday + 1,
-                    backgroundColor: cellColor(c.usd, yearStats.max),
+                    backgroundColor: cellColor(c.usd, globalMax),
                     borderRadius: 2,
                     cursor: isActive ? "pointer" : "default",
                   }}
@@ -316,7 +422,7 @@ export function BuyHeatmap({ txns }: { txns: Transaction[] }) {
       {/* Legend — color bands with their actual USD upper bounds so the user
           can read intensity off the chart directly. The first swatch is the
           "no buy" empty cell; the rest cover the sqrt-mapped quartile slices
-          of the year's max. */}
+          of the global max. */}
       <div className="mt-3 text-[11px] text-muted">
         {legendBands.length > 0 ? (
           <div className="flex flex-wrap items-end gap-3">
@@ -344,11 +450,13 @@ export function BuyHeatmap({ txns }: { txns: Transaction[] }) {
               ))}
             </div>
             <span className="ml-auto text-faint">
-              Brightest day in {year}: {formatUsd(yearStats.max)}
+              {activeStats && activeStats.max > 0
+                ? `Brightest day in ${activeYear}: ${formatUsd(activeStats.max)}`
+                : `All-time peak: ${formatUsd(globalMax)} (${globalStats.buys.toLocaleString()} buys total)`}
             </span>
           </div>
         ) : (
-          <span className="text-faint">No buys in {year}</span>
+          <span className="text-faint">No buys recorded yet</span>
         )}
       </div>
 
