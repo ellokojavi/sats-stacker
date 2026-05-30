@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { simulateAllStrategies, STRATEGIES } from "./whatif";
+import {
+  simulateAllStrategies,
+  STRATEGIES,
+  DEFAULT_CUSTOM_PARAMS,
+  describeCustomStrategy,
+  type CustomStrategyParams,
+} from "./whatif";
 import type { PricePoint, Transaction } from "./types";
 
 function tx(date: string, usd: number, btc: number): Transaction {
@@ -195,5 +201,188 @@ describe("simulateAllStrategies", () => {
     });
     const ids = results.map((r) => r.strategyId);
     expect(ids).toEqual(STRATEGIES.map((s) => s.id));
+  });
+
+  it("omits the custom strategy when no params are passed", () => {
+    const txns = [tx("2024-01-01", 1000, 0.02)];
+    const prices = pricesFrom("2024-01-01", "2024-06-01", [
+      ["2024-01-01", 50000],
+      ["2024-06-01", 60000],
+    ]);
+    const results = simulateAllStrategies({
+      txns,
+      prices,
+      currentPrice: 60000,
+      asOf: "2024-06-01",
+    });
+    expect(results.find((r) => r.strategyId === "custom")).toBeUndefined();
+  });
+});
+
+describe("simulateAllStrategies — custom strategy", () => {
+  it("includes the custom result when params are passed and respects the capital constraint", () => {
+    const txns = [
+      tx("2022-01-01", 1000, 0.02),
+      tx("2023-01-01", 1000, 0.04),
+      tx("2024-01-01", 1000, 0.02),
+    ];
+    const prices = pricesFrom("2022-01-01", "2026-01-01", [
+      ["2022-01-01", 50000],
+      ["2023-01-01", 25000],
+      ["2024-01-01", 50000],
+      ["2026-01-01", 100000],
+    ]);
+    const results = simulateAllStrategies({
+      txns,
+      prices,
+      currentPrice: 100000,
+      asOf: "2026-01-01",
+      custom: DEFAULT_CUSTOM_PARAMS,
+    });
+    const custom = results.find((r) => r.strategyId === "custom");
+    expect(custom).toBeDefined();
+    // The custom strategy must deploy within a buck of the actual total —
+    // same apples-to-apples constraint every built-in strategy honors.
+    expect(Math.abs(custom!.totalInvested - 3000)).toBeLessThan(1.5);
+  });
+
+  it("pure-cadence custom with cadenceDays=7 matches the weekly strategy", () => {
+    const txns = [
+      tx("2023-01-01", 0.01, 0.0000001),
+      tx("2024-01-01", 999.99, 0.01),
+    ];
+    const prices = pricesFrom("2023-01-01", "2024-01-01", [
+      ["2023-01-01", 50000],
+      ["2024-01-01", 50000],
+    ]);
+    const params: CustomStrategyParams = {
+      ...DEFAULT_CUSTOM_PARAMS,
+      cadenceEnabled: true,
+      cadenceDays: 7,
+      dipEnabled: false, // pure cadence
+    };
+    const results = simulateAllStrategies({
+      txns,
+      prices,
+      currentPrice: 50000,
+      asOf: "2024-01-01",
+      custom: params,
+    });
+    const weekly = results.find((r) => r.strategyId === "weekly")!;
+    const custom = results.find((r) => r.strategyId === "custom")!;
+    // Cadence-only Custom with the same step should match the canonical
+    // weekly strategy on buy count and total BTC.
+    expect(custom.buys.length).toBe(weekly.buys.length);
+    expect(Math.abs(custom.totalBtc - weekly.totalBtc)).toBeLessThan(1e-6);
+  });
+
+  it("dip leg fires on a drawdown and applies the configured weight", () => {
+    // Price path: $50k flat → drops to $20k on 2023-07-01 (60% drawdown from
+    // trailing high), recovers to $50k by 2024-01-01. With cadence disabled
+    // and dip weight = 1, only the dip event fires — every dollar lands on
+    // that single day.
+    //
+    // The user's actual buy window must SPAN past the dip date (otherwise
+    // the simulator's window collapses around their last buy and the dip
+    // event date is filtered out). A second small marker buy on 2023-12-01
+    // extends `lastDate` past the dip.
+    const txns = [
+      tx("2023-01-01", 999, 0.0198),
+      tx("2023-12-01", 1, 0.00002),
+    ];
+    // Price snaps from $50k → $20k for a one-day flash drop, then recovers
+    // to $50k the very next day. That keeps the drawdown inside the 30-day
+    // cooldown window so we get exactly one event.
+    const prices = pricesFrom("2023-01-01", "2024-01-01", [
+      ["2023-01-01", 50000],
+      ["2023-06-30", 50000],
+      ["2023-07-01", 20000],
+      ["2023-07-02", 50000],
+      ["2024-01-01", 50000],
+    ]);
+    const params: CustomStrategyParams = {
+      ...DEFAULT_CUSTOM_PARAMS,
+      cadenceEnabled: false,
+      dipEnabled: true,
+      dipPctThreshold: 0.3,
+      dipLookbackDays: 365,
+      dipCooldownDays: 30,
+      dipWeight: 1,
+    };
+    const results = simulateAllStrategies({
+      txns,
+      prices,
+      currentPrice: 50000,
+      asOf: "2024-01-01",
+      custom: params,
+    });
+    const custom = results.find((r) => r.strategyId === "custom")!;
+    // Cooldown collapses the multi-day drawdown into one event.
+    expect(custom.buys).toHaveLength(1);
+    expect(custom.buys[0].date).toBe("2023-07-01");
+    // Bought the entire $1000 budget at $20k → 0.05 BTC.
+    expect(custom.buys[0].usd).toBeCloseTo(1000, 0);
+    expect(custom.totalBtc).toBeCloseTo(0.05, 5);
+  });
+
+  it("falls back to a lump-sum on day 1 when both legs would produce zero events", () => {
+    const txns = [tx("2023-06-01", 1000, 0.02)];
+    const prices = pricesFrom("2023-06-01", "2023-12-01", [
+      ["2023-06-01", 50000],
+      ["2023-12-01", 50000],
+    ]);
+    const params: CustomStrategyParams = {
+      ...DEFAULT_CUSTOM_PARAMS,
+      cadenceEnabled: false,
+      dipEnabled: false,
+    };
+    const results = simulateAllStrategies({
+      txns,
+      prices,
+      currentPrice: 50000,
+      asOf: "2023-12-01",
+      custom: params,
+    });
+    const custom = results.find((r) => r.strategyId === "custom")!;
+    expect(custom.buys).toHaveLength(1);
+    expect(custom.buys[0].date).toBe("2023-06-01");
+    expect(custom.buys[0].usd).toBeCloseTo(1000, 0);
+  });
+});
+
+describe("describeCustomStrategy", () => {
+  it("labels common cadences with friendly names", () => {
+    expect(
+      describeCustomStrategy({
+        ...DEFAULT_CUSTOM_PARAMS,
+        cadenceDays: 7,
+        dipEnabled: false,
+      }).label,
+    ).toBe("Custom · Weekly");
+    expect(
+      describeCustomStrategy({
+        ...DEFAULT_CUSTOM_PARAMS,
+        cadenceDays: 30,
+        dipEnabled: false,
+      }).label,
+    ).toBe("Custom · Monthly");
+    expect(
+      describeCustomStrategy({
+        ...DEFAULT_CUSTOM_PARAMS,
+        cadenceDays: 14,
+        dipEnabled: false,
+      }).label,
+    ).toBe("Custom · Every 14d");
+  });
+
+  it("includes the dip threshold in the label when the leg is enabled", () => {
+    const out = describeCustomStrategy({
+      ...DEFAULT_CUSTOM_PARAMS,
+      cadenceEnabled: true,
+      cadenceDays: 7,
+      dipEnabled: true,
+      dipPctThreshold: 0.25,
+    });
+    expect(out.label).toBe("Custom · Weekly +25% dip");
   });
 });

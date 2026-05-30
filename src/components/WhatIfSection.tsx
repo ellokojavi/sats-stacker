@@ -15,8 +15,13 @@ import type { PricePoint, Transaction } from "@/lib/types";
 import {
   simulateAllStrategies,
   STRATEGIES,
+  CUSTOM_STRATEGY_COLOR,
+  DEFAULT_CUSTOM_PARAMS,
+  describeCustomStrategy,
   type StrategyId,
   type StrategyResult,
+  type StrategyMeta,
+  type CustomStrategyParams,
 } from "@/lib/whatif";
 import { formatUsd, formatUsdShort, formatPct, formatDate } from "@/lib/format";
 import { Panel } from "./Panel";
@@ -166,12 +171,46 @@ export function WhatIfSection({
   currentPrice: number;
   asOf: string;
 }) {
-  // Run every strategy once per (ledger, prices, price) change. Each strategy
-  // returns its own daily series; we'll merge them by date below for the chart.
-  const results = useMemo(
-    () => simulateAllStrategies({ txns, prices, currentPrice, asOf }),
-    [txns, prices, currentPrice, asOf],
+  // ── Custom strategy state. Gated behind a disclosure so the section opens
+  //    to the same height it always has; recruiters see the rule builder only
+  //    if they choose to expand it.
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customEnabled, setCustomEnabled] = useState(false);
+  const [customParams, setCustomParams] = useState<CustomStrategyParams>(
+    DEFAULT_CUSTOM_PARAMS,
   );
+  const activeCustom = customEnabled ? customParams : null;
+  const customMeta: StrategyMeta = useMemo(() => {
+    const { label, description } = describeCustomStrategy(customParams);
+    return {
+      id: "custom",
+      label,
+      description,
+      color: CUSTOM_STRATEGY_COLOR,
+    };
+  }, [customParams]);
+
+  // Run every strategy once per (ledger, prices, price, custom) change. Each
+  // strategy returns its own daily series; we'll merge them by date below
+  // for the chart.
+  const results = useMemo(
+    () =>
+      simulateAllStrategies({
+        txns,
+        prices,
+        currentPrice,
+        asOf,
+        custom: activeCustom,
+      }),
+    [txns, prices, currentPrice, asOf, activeCustom],
+  );
+
+  // The set of strategies to render (chart legend + scoreboard). The custom
+  // strategy joins only when the user has enabled it. Putting it at the end
+  // keeps the built-in order stable.
+  const visibleStrategies: ReadonlyArray<StrategyMeta> = useMemo(() => {
+    return customEnabled ? [...STRATEGIES, customMeta] : STRATEGIES;
+  }, [customEnabled, customMeta]);
 
   const actual = results.find((r) => r.strategyId === "actual");
   const totalInvested = actual?.totalInvested ?? 0;
@@ -339,7 +378,7 @@ export function WhatIfSection({
 
         {/* Clickable legend — toggles a strategy's line + axis tracking */}
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-          {STRATEGIES.map((s) => {
+          {visibleStrategies.map((s) => {
             const isHidden = hidden.has(s.id);
             return (
               <button
@@ -393,7 +432,7 @@ export function WhatIfSection({
                 width={62}
               />
               <Tooltip content={<WhatIfTooltip />} />
-              {STRATEGIES.map((s) => {
+              {visibleStrategies.map((s) => {
                 if (hidden.has(s.id)) return null;
                 return (
                   <Line
@@ -444,7 +483,9 @@ export function WhatIfSection({
             </thead>
             <tbody>
               {scoreboard.map((r, idx) => {
-                const meta = STRATEGIES.find((s) => s.id === r.strategyId)!;
+                const meta =
+                  visibleStrategies.find((s) => s.id === r.strategyId) ??
+                  STRATEGIES[0];
                 const isYou = r.strategyId === "actual";
                 const delta = r.finalValue - (actual?.finalValue ?? 0);
                 return (
@@ -578,6 +619,185 @@ export function WhatIfSection({
           table by not being clairvoyant.
         </p>
       </Panel>
+
+      <CustomStrategyBuilder
+        open={customOpen}
+        onOpenChange={setCustomOpen}
+        enabled={customEnabled}
+        onEnabledChange={setCustomEnabled}
+        params={customParams}
+        onParamsChange={setCustomParams}
+      />
     </div>
+  );
+}
+
+// ─── Custom strategy disclosure ───────────────────────────────────────────────
+
+/**
+ * Compact rule builder. Closed by default so the section's resting height is
+ * unchanged. When expanded it shows two legs (cadence + dip), each with a
+ * tiny inline form. Toggling "Add to comparison" pipes the params into the
+ * simulator; the resulting line shares the chart, scoreboard, and capital
+ * constraint with every built-in strategy.
+ */
+function CustomStrategyBuilder({
+  open,
+  onOpenChange,
+  enabled,
+  onEnabledChange,
+  params,
+  onParamsChange,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  enabled: boolean;
+  onEnabledChange: (next: boolean) => void;
+  params: CustomStrategyParams;
+  onParamsChange: (next: CustomStrategyParams) => void;
+}) {
+  const set = <K extends keyof CustomStrategyParams>(
+    key: K,
+    value: CustomStrategyParams[K],
+  ) => onParamsChange({ ...params, [key]: value });
+  const { label } = describeCustomStrategy(params);
+
+  return (
+    <Panel title="Build your own strategy">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => onOpenChange(!open)}
+          aria-expanded={open}
+          className="flex items-center gap-2 text-[12px] text-muted hover:text-ink"
+        >
+          <span
+            className="inline-block h-[3px] w-3.5"
+            style={{ backgroundColor: CUSTOM_STRATEGY_COLOR }}
+          />
+          <span className="text-ink">{enabled ? label : "Custom strategy"}</span>
+          <span aria-hidden="true" className="text-faint">
+            {open ? "▾" : "▸"}
+          </span>
+          <span className="text-faint">
+            {open
+              ? "(hide)"
+              : enabled
+                ? "(active — click to edit)"
+                : "(click to configure)"}
+          </span>
+        </button>
+        <label className="flex items-center gap-2 text-[11px] text-muted">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => onEnabledChange(e.target.checked)}
+            className="h-3 w-3 accent-bitcoin"
+          />
+          Add to comparison
+        </label>
+      </div>
+
+      {open && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {/* ── Cadence leg ───────────────────────────────────────────────── */}
+          <div className="rounded border border-edge bg-night/40 p-2.5">
+            <label className="flex items-center gap-2 text-[12px] text-ink">
+              <input
+                type="checkbox"
+                checked={params.cadenceEnabled}
+                onChange={(e) => set("cadenceEnabled", e.target.checked)}
+                className="h-3 w-3 accent-bitcoin"
+              />
+              Base cadence
+            </label>
+            <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted">
+              <span>Buy every</span>
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={params.cadenceDays}
+                onChange={(e) =>
+                  set(
+                    "cadenceDays",
+                    Math.max(1, Math.floor(Number(e.target.value) || 0)),
+                  )
+                }
+                disabled={!params.cadenceEnabled}
+                className="w-14 rounded border border-edge bg-night px-1.5 py-0.5 text-right font-mono text-ink disabled:opacity-50"
+              />
+              <span>days</span>
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-faint">
+              7 = weekly · 30 = monthly · 1 = daily. Cadence buys share the
+              window's total budget by relative weight.
+            </p>
+          </div>
+
+          {/* ── Dip leg ────────────────────────────────────────────────────── */}
+          <div className="rounded border border-edge bg-night/40 p-2.5">
+            <label className="flex items-center gap-2 text-[12px] text-ink">
+              <input
+                type="checkbox"
+                checked={params.dipEnabled}
+                onChange={(e) => set("dipEnabled", e.target.checked)}
+                className="h-3 w-3 accent-bitcoin"
+              />
+              Bonus on drawdowns
+            </label>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+              <span>Trigger at</span>
+              <input
+                type="number"
+                min={1}
+                max={99}
+                value={Math.round(params.dipPctThreshold * 100)}
+                onChange={(e) =>
+                  set(
+                    "dipPctThreshold",
+                    Math.min(
+                      0.99,
+                      Math.max(0.01, (Number(e.target.value) || 0) / 100),
+                    ),
+                  )
+                }
+                disabled={!params.dipEnabled}
+                className="w-12 rounded border border-edge bg-night px-1.5 py-0.5 text-right font-mono text-ink disabled:opacity-50"
+              />
+              <span>% drawdown · weight ×</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                step={0.5}
+                value={params.dipWeight}
+                onChange={(e) =>
+                  set("dipWeight", Math.max(0.1, Number(e.target.value) || 0))
+                }
+                disabled={!params.dipEnabled}
+                className="w-14 rounded border border-edge bg-night px-1.5 py-0.5 text-right font-mono text-ink disabled:opacity-50"
+              />
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-faint">
+              Fires when price ≤ (1 − threshold) × trailing{" "}
+              {params.dipLookbackDays}-day high. {params.dipCooldownDays}-day
+              cooldown between triggers. Weight scales how much more capital
+              a dip-day gets than a cadence-day.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {open && (
+        <p className="mt-3 text-[11px] leading-relaxed text-muted">
+          Weights are relative — the simulator scales every buy so total
+          spend matches your actual total, the same constraint every other
+          strategy follows. Toggle <span className="text-ink">Add to
+          comparison</span> to drop your strategy into the chart and
+          scoreboard above.
+        </p>
+      )}
+    </Panel>
   );
 }

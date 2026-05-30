@@ -16,6 +16,8 @@
  *                     trailing 1-year high (30-day cooldown between buys)
  *   • halving       — split total evenly across BTC halvings inside your window
  *   • oracle        — buy at every monthly low — the unbeatable upper bound
+ *   • custom        — user-defined cadence + optional drawdown-triggered bonus.
+ *                     Same capital-constraint rules as every other strategy.
  */
 
 import type { PricePoint, Transaction } from "./types";
@@ -37,7 +39,8 @@ export type StrategyId =
   | "monthly"
   | "dipBuy"
   | "halving"
-  | "oracle";
+  | "oracle"
+  | "custom";
 
 export interface StrategyMeta {
   id: StrategyId;
@@ -45,6 +48,98 @@ export interface StrategyMeta {
   color: string;
   /** Short explanation shown in tooltips and the scoreboard description. */
   description: string;
+}
+
+/** The reserved color for the user-defined custom strategy. */
+export const CUSTOM_STRATEGY_COLOR = "#fb7185";
+
+/**
+ * Parameters for the user-defined custom strategy.
+ *
+ *   • Base cadence (optional) — deploy a weighted buy every `cadenceDays`
+ *     days from the user's Day 1.
+ *   • Drawdown trigger (optional) — additionally deploy a weighted buy each
+ *     time BTC has drawn down ≥ `dipPctThreshold` from its trailing
+ *     `dipLookbackDays`-day high, with a cooldown between triggers.
+ *
+ * Weights are relative — the simulator scales every event's USD so the
+ * sum matches the user's actual total invested. That preserves the
+ * apples-to-apples constraint that every other strategy honors.
+ */
+export interface CustomStrategyParams {
+  /** Whether the user has enabled the base cadence leg. */
+  cadenceEnabled: boolean;
+  /** Days between cadence buys (≥ 1). 7 = weekly, 30 = monthly, 1 = daily. */
+  cadenceDays: number;
+  /** Relative weight per cadence buy. Scales against the dip weight. */
+  cadenceWeight: number;
+  /** Whether the user has enabled the drawdown-triggered bonus leg. */
+  dipEnabled: boolean;
+  /**
+   * Drawdown threshold (e.g. 0.30 for "fires when price ≤ 70 % of trailing
+   * high"). Stored as a fraction in [0, 1).
+   */
+  dipPctThreshold: number;
+  /** Lookback for the trailing high, in days (e.g. 365 for trailing 1-year). */
+  dipLookbackDays: number;
+  /** Cooldown between consecutive dip triggers, in days. */
+  dipCooldownDays: number;
+  /** Relative weight per dip-triggered buy. */
+  dipWeight: number;
+}
+
+/** Sensible defaults — weekly cadence + buy-the-dip bonus at 30 % drawdown. */
+export const DEFAULT_CUSTOM_PARAMS: CustomStrategyParams = {
+  cadenceEnabled: true,
+  cadenceDays: 7,
+  cadenceWeight: 1,
+  dipEnabled: true,
+  dipPctThreshold: 0.3,
+  dipLookbackDays: 365,
+  dipCooldownDays: 30,
+  dipWeight: 3,
+};
+
+/**
+ * Build a human-readable label + description for the user's current custom
+ * config. Surfaced in the chart legend, the scoreboard, and the info popover
+ * so the line is self-explanatory without a separate cheat sheet.
+ */
+export function describeCustomStrategy(p: CustomStrategyParams): {
+  label: string;
+  description: string;
+} {
+  const parts: string[] = [];
+  if (p.cadenceEnabled && p.cadenceDays > 0) {
+    if (p.cadenceDays === 1) parts.push("Daily");
+    else if (p.cadenceDays === 7) parts.push("Weekly");
+    else if (p.cadenceDays === 30) parts.push("Monthly");
+    else parts.push(`Every ${p.cadenceDays}d`);
+  }
+  if (p.dipEnabled && p.dipPctThreshold > 0) {
+    const pct = Math.round(p.dipPctThreshold * 100);
+    parts.push(`+${pct}% dip`);
+  }
+  const label =
+    parts.length === 0 ? "Custom strategy" : `Custom · ${parts.join(" ")}`;
+
+  const desc: string[] = [];
+  if (p.cadenceEnabled && p.cadenceDays > 0) {
+    desc.push(
+      `weighted buy every ${p.cadenceDays} ${p.cadenceDays === 1 ? "day" : "days"}`,
+    );
+  }
+  if (p.dipEnabled && p.dipPctThreshold > 0) {
+    desc.push(
+      `bonus buy (weight ×${p.dipWeight}) on drawdowns ≥ ${Math.round(p.dipPctThreshold * 100)}% from the trailing ${p.dipLookbackDays}-day high (${p.dipCooldownDays}-day cooldown)`,
+    );
+  }
+  const description =
+    desc.length === 0
+      ? "Configure cadence and/or a drawdown trigger to define your own strategy."
+      : `Your own rule — ${desc.join("; ")}. Total spend matches your actual total.`;
+
+  return { label, description };
 }
 
 export const STRATEGIES: ReadonlyArray<StrategyMeta> = [
@@ -397,6 +492,104 @@ function generateOracle(
   ];
 }
 
+/**
+ * User-defined custom strategy.
+ *
+ * The user contributes two ingredient rules and a relative weight for each:
+ *
+ *   • Base cadence  — a weighted event every `cadenceDays` from Day 1.
+ *   • Dip trigger   — a weighted event each time price ≤ (1 − threshold) ×
+ *     trailing `dipLookbackDays` high, with a cooldown between triggers.
+ *
+ * We compose the two streams, merge events that land on the same day (weights
+ * add), then scale every event's USD so the sum equals `totalUsd`. That
+ * scaling step is what keeps the strategy apples-to-apples with every other
+ * one in the simulator. Without it, the user could effectively cheat by
+ * increasing weights and "investing more."
+ *
+ * Falls back to a lump-sum on day 1 when both legs would generate zero
+ * events — without that fallback the strategy would silently invest $0 and
+ * read like a chart bug.
+ */
+function generateCustom(
+  totalUsd: number,
+  firstDate: string,
+  lastDate: string,
+  prices: PricePoint[],
+  priceAt: (d: string) => number,
+  params: CustomStrategyParams,
+): StrategyBuy[] {
+  const events: Array<{ date: string; weight: number }> = [];
+
+  // ── Cadence leg ────────────────────────────────────────────────────────
+  if (params.cadenceEnabled && params.cadenceDays > 0 && params.cadenceWeight > 0) {
+    let cursor = firstDate;
+    while (cursor <= lastDate) {
+      events.push({ date: cursor, weight: params.cadenceWeight });
+      cursor = shiftDays(cursor, params.cadenceDays);
+    }
+  }
+
+  // ── Dip leg ────────────────────────────────────────────────────────────
+  if (
+    params.dipEnabled &&
+    params.dipPctThreshold > 0 &&
+    params.dipPctThreshold < 1 &&
+    params.dipWeight > 0
+  ) {
+    const window = prices.filter(
+      (p) => p.date >= firstDate && p.date <= lastDate && p.price > 0,
+    );
+    const threshold = 1 - params.dipPctThreshold;
+    const lookback = Math.max(1, Math.floor(params.dipLookbackDays));
+    const cooldownMs = Math.max(0, params.dipCooldownDays) * DAY_MS;
+    let lastEventMs = -Infinity;
+    for (let i = 0; i < window.length; i++) {
+      const p = window[i];
+      const startIdx = Math.max(0, i - lookback);
+      let high = 0;
+      for (let j = startIdx; j <= i; j++) {
+        if (window[j].price > high) high = window[j].price;
+      }
+      if (high <= 0) continue;
+      if (p.price <= high * threshold) {
+        const ms = dateMs(p.date);
+        if (ms - lastEventMs >= cooldownMs) {
+          events.push({ date: p.date.slice(0, 10), weight: params.dipWeight });
+          lastEventMs = ms;
+        }
+      }
+    }
+  }
+
+  if (events.length === 0) {
+    return generateLumpSum(totalUsd, firstDate, priceAt);
+  }
+
+  // Merge events that fall on the same date so we don't emit two buys per day
+  // (which is messy in the buy list and double-counts in tooltips).
+  const merged = new Map<string, number>();
+  for (const e of events) {
+    merged.set(e.date, (merged.get(e.date) ?? 0) + e.weight);
+  }
+  const sumWeights = [...merged.values()].reduce((s, w) => s + w, 0);
+  if (sumWeights <= 0) return generateLumpSum(totalUsd, firstDate, priceAt);
+
+  const out: StrategyBuy[] = [];
+  for (const [date, weight] of merged) {
+    const usd = (totalUsd * weight) / sumWeights;
+    const price = priceAt(date);
+    out.push({
+      date,
+      usd,
+      btc: price > 0 ? usd / price : 0,
+      price,
+    });
+  }
+  out.sort((a, b) => a.date.localeCompare(b.date));
+  return out;
+}
+
 // ─── public API ──────────────────────────────────────────────────────────────
 
 export interface SimulateOptions {
@@ -404,17 +597,25 @@ export interface SimulateOptions {
   prices: PricePoint[];
   currentPrice: number;
   asOf: string;
+  /**
+   * Optional user-defined strategy. When omitted, the simulator returns the
+   * seven built-in strategies only. When present, an eighth result with
+   * `strategyId === "custom"` is appended.
+   */
+  custom?: CustomStrategyParams | null;
 }
 
 /**
  * Run every strategy against the same capital + window and return a result
  * per strategy. The `actual` baseline is derived from `txns` directly; the
- * others use the actual total USD as their budget.
+ * others use the actual total USD as their budget. If `custom` is provided,
+ * the user-defined strategy is appended to the result list using the same
+ * scaling rules so it stays apples-to-apples.
  */
 export function simulateAllStrategies(
   opts: SimulateOptions,
 ): StrategyResult[] {
-  const { txns, prices, currentPrice, asOf } = opts;
+  const { txns, prices, currentPrice, asOf, custom } = opts;
   const validTxns = txns.filter((t) => t.usd > 0 && t.btc > 0);
   if (validTxns.length === 0 || prices.length === 0) return [];
 
@@ -424,7 +625,7 @@ export function simulateAllStrategies(
   const totalUsd = sortedTxns.reduce((s, t) => s + t.usd, 0);
   const priceAt = buildPriceLookup(prices);
 
-  const buysByStrategy: Record<StrategyId, StrategyBuy[]> = {
+  const buysByStrategy: Partial<Record<StrategyId, StrategyBuy[]>> = {
     actual: generateActual(validTxns),
     lumpSum: generateLumpSum(totalUsd, firstDate, priceAt),
     weekly: generateCadenceDCA(totalUsd, firstDate, lastDate, 7, priceAt),
@@ -433,9 +634,19 @@ export function simulateAllStrategies(
     halving: generateHalving(totalUsd, firstDate, lastDate, priceAt),
     oracle: generateOracle(totalUsd, firstDate, lastDate, prices),
   };
+  if (custom) {
+    buysByStrategy.custom = generateCustom(
+      totalUsd,
+      firstDate,
+      lastDate,
+      prices,
+      priceAt,
+      custom,
+    );
+  }
 
-  return STRATEGIES.map((meta) => {
-    const buys = buysByStrategy[meta.id];
+  const finalize = (meta: StrategyMeta): StrategyResult => {
+    const buys = buysByStrategy[meta.id] ?? [];
     const series = buildSeries(buys, prices, currentPrice, firstDate);
     const totalBtc = buys.reduce((s, b) => s + b.btc, 0);
     const totalInvested = buys.reduce((s, b) => s + b.usd, 0);
@@ -452,5 +663,19 @@ export function simulateAllStrategies(
       avgBuyPrice,
       cagr,
     };
-  });
+  };
+
+  const results: StrategyResult[] = STRATEGIES.map(finalize);
+  if (custom) {
+    const { label, description } = describeCustomStrategy(custom);
+    results.push(
+      finalize({
+        id: "custom",
+        label,
+        description,
+        color: CUSTOM_STRATEGY_COLOR,
+      }),
+    );
+  }
+  return results;
 }
