@@ -7,6 +7,65 @@ import {
 } from "@/lib/blockchain";
 
 /**
+ * Tiny isometric "block" cube — three shaded faces of bitcoin orange.
+ * When the feed is live, an orange aura pings outward (mirrors the
+ * BTC-price chip's heartbeat) and the cube itself breathes via
+ * animate-pulse + a soft drop-shadow. Stale feeds render a desaturated
+ * static cube. Inline SVG so there's no extra asset to ship.
+ */
+function CubeIcon({ live }: { live: boolean }) {
+  return (
+    <span className="relative inline-flex h-[14px] w-[14px] items-center justify-center">
+      {live && (
+        <span
+          aria-hidden="true"
+          className="absolute inline-flex h-full w-full animate-ping rounded-[3px] bg-bitcoin opacity-50"
+        />
+      )}
+      <svg
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        className={`relative h-[14px] w-[14px] ${
+          live
+            ? "animate-pulse drop-shadow-[0_0_3px_rgba(247,147,26,0.65)]"
+            : "opacity-50"
+        }`}
+      >
+        {/* Isometric cube: top face (light), left face (mid), right face (dark). */}
+        <polygon
+          points="12,2 22,7 12,12 2,7"
+          fill={live ? "#fbb04a" : "#9aa0aa"}
+        />
+        <polygon
+          points="2,7 12,12 12,22 2,17"
+          fill={live ? "#f7931a" : "#6b7280"}
+        />
+        <polygon
+          points="22,7 12,12 12,22 22,17"
+          fill={live ? "#c47210" : "#4b5159"}
+        />
+        {/* Subtle inner edges so the three faces read crisply against
+            dark backgrounds even at 14px. */}
+        <polyline
+          points="12,2 12,12 12,22"
+          fill="none"
+          stroke="rgba(0,0,0,0.22)"
+          strokeWidth="0.5"
+          strokeLinejoin="round"
+        />
+        <polyline
+          points="2,7 12,12 22,7"
+          fill="none"
+          stroke="rgba(0,0,0,0.18)"
+          strokeWidth="0.5"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  );
+}
+
+/**
  * Compact header chip showing the live Bitcoin chain tip and a projected
  * date for the next halving. Sits next to the BTC price chip in the TopBar.
  *
@@ -65,16 +124,7 @@ export function BlockchainStatus() {
       className="flex items-center gap-2 hover:opacity-80"
     >
       <span className="flex items-center gap-1.5 text-[13px] text-ink">
-        <span className="relative flex h-2 w-2">
-          {live && (
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-bitcoin opacity-75" />
-          )}
-          <span
-            className={`relative inline-flex h-2 w-2 rounded-full ${
-              live ? "bg-bitcoin" : "bg-faint"
-            }`}
-          />
-        </span>
+        <CubeIcon live={live} />
         <span className="font-mono font-medium">{heightLabel}</span>
       </span>
       <span className="text-[11px] text-faint">{halvingLabel}</span>
