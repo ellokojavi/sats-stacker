@@ -6,6 +6,8 @@
 
 Cost basis, ROI, capital efficiency, the Bitcoin Power Law, and cost-basis tax estimates — across every exchange you've stacked on.
 
+[![Live demo](https://img.shields.io/badge/▶_try_the_demo-live-f7931a?style=for-the-badge)](https://sats-stacker.vercel.app)
+
 ![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?logo=tailwindcss&logoColor=white)
@@ -14,7 +16,13 @@ Cost basis, ROI, capital efficiency, the Bitcoin Power Law, and cost-basis tax e
 
 </div>
 
-![sats-stacker overview dashboard](docs/screenshots/01-overview-hero.png)
+[![sats-stacker overview dashboard](docs/screenshots/01-overview-hero.png)](https://sats-stacker.vercel.app)
+
+<div align="center">
+
+**→ [Try the live demo](https://sats-stacker.vercel.app)** · synthetic data, no signup, every chart is real
+
+</div>
 
 ---
 
@@ -182,7 +190,11 @@ All shots are captured against the bundled synthetic dataset — never real hold
 
 ## Getting started
 
-### Prerequisites
+### Try it without installing anything
+
+The fastest way is the **[live demo](https://sats-stacker.vercel.app)** — it runs the same code as `main`, against the bundled synthetic dataset, and reaches every tab and interaction without any setup.
+
+### Prerequisites (for running locally)
 
 - Node.js 18.18 or newer, and npm
 - Python 3.9+ — only needed if you want to regenerate the demo data
@@ -258,6 +270,7 @@ sats-stacker was built in phases.
 - [x] **Phase 3 — Tax**: cost-basis lot tracking (FIFO / LIFO / HIFO) with a sell simulator, capital-gains estimates, and unit tests
 - [x] **Phase 4 — Polish & What If?**: What If? strategy comparator, date-range zoom with presets, power-law holdings projections (bear/base/bull bands), real BTC price history from CryptoCompare, editable tax inputs, clickable chart legends, capital-weighted annualized ROI, server-side price fetch with 60-second auto-refresh
 - [x] **Phase 6 — Domain depth & shareability**: time-machine date cursor (drag a date and watch every analytic recompute as of that day), halving-cycle cohort view (buys grouped by Bitcoin halving epochs), USD/sats denomination toggle in the header, and an ETL data-quality panel that cross-checks every transaction's implied $/BTC against the bundled price history and flags anomalies. *(Phase 5 — fees, realized P/L, risk panel, goals — is planned but not yet shipped; tracked in `docs/`.)*
+- [x] **Phase 7 — Distribution**: Vercel-ready Next.js config (`outputFileTracingIncludes` ships the bundled CSVs and price history into the serverless function) plus a live demo at <https://sats-stacker.vercel.app> linked from the README hero. See [`docs/DEPLOY.md`](docs/DEPLOY.md) for the deploy walkthrough.
 
 ## Disclaimer
 
