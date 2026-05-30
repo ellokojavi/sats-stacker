@@ -3,6 +3,7 @@
 import type { ViewMode } from "@/lib/types";
 import { formatUsd, formatDate } from "@/lib/format";
 import { useUnit } from "@/lib/unit";
+import { BlockchainStatus } from "./BlockchainStatus";
 
 export function TopBar({
   mode,
@@ -70,6 +71,8 @@ export function TopBar({
           desktop. On narrow viewports `flex-wrap` lets them stack while
           keeping the right alignment. */}
       <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+        <BlockchainStatus />
+
         <a
           href="https://www.coingecko.com/en/coins/bitcoin"
           target="_blank"

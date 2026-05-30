@@ -146,6 +146,8 @@ Reports are organized into six tabs, with the headline KPIs pinned above them:
 
 **Live BTC price** — fetched server-side at page render (60-second ISR cache) so headline numbers are correct on first load with no flicker. A background client-side poll refreshes every 60 seconds, so charts and tables stay current during long sessions. A pulsing price chip in the header links directly to CoinGecko.
 
+**Live chain status** — a second header chip shows the current Bitcoin block height and the projected date of the next halving (block 1,050,000). Block height is pulled from mempool.space, with blockstream.info as a fallback; the ETA uses the current difficulty epoch's average block time rather than the textbook 10 minutes, so the projection tracks reality as miners come on- and off-line.
+
 ## Screenshots
 
 All shots are captured against the bundled synthetic dataset — never real holdings. Regen with `npm run screenshots` (see [`docs/screenshots/`](docs/screenshots/)).
@@ -251,6 +253,7 @@ sats-stacker/
 │       ├── tax.ts              FIFO/LIFO/HIFO cost-basis engine
 │       ├── tax.test.ts         Vitest unit tests for the tax engine
 │       ├── portfolio.ts        snapshot + holdings-series metrics
+│       ├── blockchain.ts       live chain tip + next-halving ETA (mempool.space)
 │       ├── data.ts             filesystem loaders (demo / private)
 │       ├── importStore.ts      browser-import localStorage persistence
 │       ├── unit.tsx            USD/sats denomination context
@@ -273,6 +276,7 @@ sats-stacker was built in phases.
 - [x] **Phase 7 — Distribution**: Vercel-ready Next.js config (`outputFileTracingIncludes` ships the bundled CSVs and price history into the serverless function) plus a "Deploy with Vercel" button in the README hero that forks the repo into the reviewer's account in one click. See [`docs/DEPLOY.md`](docs/DEPLOY.md) for the walkthrough.
 - [x] **Phase 8 — Custom strategy builder**: a sixth slot in the What If? tab lets you compose your own DCA rule (cadence in days plus an optional drawdown-triggered bonus, with configurable threshold, weight, lookback, and cooldown) and compare it head-to-head with the five built-in counterfactuals. Same apples-to-apples capital constraint, same chart, same scoreboard.
 - [x] **Phase 9 — Dual-model Projection tab**: the Power Law tab is now **Projection**, with an in-tab model toggle. The original Power Law fit ships alongside a new **Quantile Bands** model — Cowen (2026)'s asymmetric quadratic quantile regression of log₁₀(price) on centered log-time, rearranged (Chernozhukov, Fernández-Val & Galichon 2010) so the seven conditional quantiles stay monotone at long horizons. Both models share the metric strip, historical log-log chart, +5Y forecast extension, forward fair-value milestones, holdings projection chart, and DCA overlay, so toggling between them is an instant swap rather than a different view.
+- [x] **Phase 10 — Live chain status in the header**: a new chip beside the BTC price shows the current block height and a projected calendar date for the next halving (block 1,050,000). Pulls from mempool.space with a blockstream.info fallback, and uses the current difficulty epoch's average block time rather than a flat 10-minute assumption so the ETA tracks real network conditions.
 
 ## Disclaimer
 
