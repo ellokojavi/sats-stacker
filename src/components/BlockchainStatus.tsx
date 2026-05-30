@@ -8,26 +8,21 @@ import {
 
 /**
  * Tiny isometric "block" cube — three shaded faces of bitcoin orange.
- * When the feed is live, an orange aura pings outward (mirrors the
- * BTC-price chip's heartbeat) and the cube itself breathes via
- * animate-pulse + a soft drop-shadow. Stale feeds render a desaturated
- * static cube. Inline SVG so there's no extra asset to ship.
+ * When the feed is live, the cube breathes via a slow opacity pulse
+ * (3 s, opacity 1 → 0.7 → 1) so it reads as alive without competing
+ * with the rest of the header. No aura ping, no drop-shadow — that
+ * intensity belongs on the BTC-price dot, not a 14 px icon. Stale
+ * feeds render a desaturated static cube.
  */
 function CubeIcon({ live }: { live: boolean }) {
   return (
     <span className="relative inline-flex h-[14px] w-[14px] items-center justify-center">
-      {live && (
-        <span
-          aria-hidden="true"
-          className="absolute inline-flex h-full w-full animate-ping rounded-[3px] bg-bitcoin opacity-50"
-        />
-      )}
       <svg
         viewBox="0 0 24 24"
         aria-hidden="true"
         className={`relative h-[14px] w-[14px] ${
           live
-            ? "animate-pulse drop-shadow-[0_0_3px_rgba(247,147,26,0.65)]"
+            ? "animate-[pulse_3s_ease-in-out_infinite]"
             : "opacity-50"
         }`}
       >
