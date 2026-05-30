@@ -1,30 +1,31 @@
 # Deploying sats-stacker to Vercel
 
-The repo is configured to deploy to Vercel out of the box. This is what
-landed in `feat(deploy): Vercel-ready + README live-demo link`, and what
-the README hero's "Try the demo live" button points at.
+The repo is configured to deploy to Vercel out of the box. The README
+hero's "Deploy with Vercel" button kicks off this flow for any reviewer
+who wants their own live copy.
 
-## One-time setup (Javier)
+## One-time setup
 
-1. Sign in at <https://vercel.com> with the GitHub account that owns
-   `ellokojavi/sats-stacker` (uses the same GitHub identity, no extra
-   account juggling).
-2. Click **Add New… → Project**, then **Import** the `sats-stacker` repo.
-3. **Framework preset** auto-detects as *Next.js*. Leave the build /
-   output / install commands at their defaults — they match what
-   `package.json` already declares.
-4. **Project name:** `sats-stacker` (so the production URL becomes
-   `https://sats-stacker.vercel.app`, matching the link in the README
-   hero). If that name is taken globally, claim something close
-   (`sats-stacker-app`, `sats-stacker-demo`) and update the two URLs
-   in `README.md` to match.
-5. **Environment variables:** none. The CoinGecko price fetch is public
+The README "Deploy with Vercel" button is the fastest path — it walks you
+through importing the repo into your own Vercel account with one click.
+The longer-form version of the same flow:
+
+1. Sign in at <https://vercel.com> with GitHub.
+2. **Add New… → Project**, **Import** `ellokojavi/sats-stacker` (or your
+   fork). Framework preset auto-detects as *Next.js*; leave the build,
+   output, and install commands at their defaults.
+3. **Environment variables:** none. The CoinGecko price fetch is public
    and the bundled BTC price history is committed.
-6. **Deploy.** Wait for the first build to finish; the URL goes live as
-   soon as it does.
+4. **Deploy.** The first build takes ~60 seconds and the URL goes live
+   immediately after. Vercel auto-assigns a `*.vercel.app` subdomain
+   from the project name — you can rename it later under Project Settings
+   → Domains, or attach a custom domain.
 
-Every subsequent push to `main` will redeploy automatically. PRs get
-their own preview URLs.
+Every subsequent push to `main` redeploys automatically. PRs get their
+own preview URLs.
+
+Once a canonical production URL exists, swap the README hero's "Deploy
+with Vercel" button for a "Try the live demo →" link pointing at it.
 
 ## Why the `next.config.mjs` change matters
 
@@ -59,6 +60,6 @@ fix is to widen the glob, not to introduce a new build step.
 
 ## Custom domain (optional)
 
-If `sats-stacker.javieririgoyen.com` (or similar) ever becomes useful,
 Vercel's domain config takes a CNAME and propagates HTTPS automatically.
-The README link would need a one-line update to point at the new host.
+If you point a custom domain at the deployment, update the README hero
+button (or replace it with a live-demo link) to match.
