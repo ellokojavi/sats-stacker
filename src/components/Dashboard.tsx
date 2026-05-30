@@ -306,6 +306,7 @@ export function Dashboard({
         price={price}
         live={live}
         asOf={bundled.date}
+        onLogoClick={() => setTab("overview")}
       />
 
       {showEmptyState ? (

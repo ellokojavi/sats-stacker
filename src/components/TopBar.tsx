@@ -10,20 +10,30 @@ export function TopBar({
   price,
   live,
   asOf,
+  onLogoClick,
 }: {
   mode: ViewMode;
   onModeChange: (mode: ViewMode) => void;
   price: number;
   live: boolean;
   asOf: string;
+  onLogoClick?: () => void;
 }) {
   const { unit, setUnit } = useUnit();
   return (
     <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-bitcoin text-[15px] font-medium text-night">
-        &#8383;
-      </div>
-      <span className="text-[15px] font-medium text-ink">sats-stacker</span>
+      <button
+        type="button"
+        onClick={onLogoClick}
+        title="Go to Overview"
+        aria-label="Go to Overview"
+        className="flex items-center gap-3 rounded-full transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-bitcoin/60"
+      >
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-bitcoin text-[15px] font-medium text-night">
+          &#8383;
+        </span>
+        <span className="text-[15px] font-medium text-ink">sats-stacker</span>
+      </button>
 
       <div
         className="flex items-center rounded-full border border-edge p-0.5"
