@@ -37,9 +37,12 @@ const SHOTS = [
     waitFor: "text=Submarine",
   },
   {
-    file: "03-power-law.png",
-    tab: "Power Law",
-    waitFor: "text=Power Law",
+    file: "03-projection.png",
+    tab: "Projection",
+    // "log-log" appears in the chart panel title for both Power Law and
+    // Quantile Bands renderings, so it's a stable selector across the
+    // in-tab model toggle.
+    waitFor: "text=log-log",
   },
   {
     file: "04-tax.png",

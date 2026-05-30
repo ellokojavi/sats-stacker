@@ -13,7 +13,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { PowerLawPoint, PowerLawResult } from "@/lib/powerlaw";
+import type {
+  BtcProjection,
+  ProjectionModelId,
+  ProjectionPoint,
+} from "@/lib/projection";
 import type { Snapshot } from "@/lib/types";
 import { formatUsd } from "@/lib/format";
 import { Panel } from "./Panel";
@@ -105,9 +109,9 @@ function daysTickFormatter(
   };
 }
 
-function PowerLawTooltip({ active, payload }: any) {
+function ModelLineTooltip({ active, payload }: any) {
   if (!active || !payload || payload.length === 0) return null;
-  const p = payload[0].payload;
+  const p = payload[0].payload as ProjectionPoint;
   // With daily price data, show the exact date the cursor is on rather than
   // just the year — otherwise zooming in to a single quarter makes every point
   // read "~2026" and there's no way to tell March from May.
@@ -121,7 +125,9 @@ function PowerLawTooltip({ active, payload }: any) {
   return (
     <div className="rounded-md border border-edge bg-night px-3 py-2 text-[11px]">
       <div className="text-faint">{label}</div>
-      <div className="text-bitcoin">Price: {formatUsd(p.price)}</div>
+      {p.price != null && (
+        <div className="text-bitcoin">Price: {formatUsd(p.price)}</div>
+      )}
       <div className="text-muted">Model: {formatUsd(p.model)}</div>
     </div>
   );
@@ -129,56 +135,56 @@ function PowerLawTooltip({ active, payload }: any) {
 
 // ─── Holdings projection tooltip ──────────────────────────────────────────────
 
-// chartData already stores portfolio values (btcPrice × totalBtc), so the
-// tooltip reads the pre-computed keys directly — no second multiplication.
-// dcaValue is also pre-computed and optional.
-function ProjectionTooltip({ active, payload }: any) {
-  if (!active || !payload || payload.length === 0) return null;
-  const p = payload[0].payload as {
-    days: number;
-    bear: number;
-    pessimistic: number;
-    median: number;
-    optimistic: number;
-    bull: number;
-    dcaValue?: number;
-  };
-  const date = new Date(GENESIS_MS + p.days * DAY_MS);
-  const label =
-    date.toLocaleString("default", { month: "short", timeZone: "UTC" }) +
-    " " +
-    date.getUTCFullYear();
-  return (
-    <div className="rounded-md border border-edge bg-night px-3 py-2 text-[11px] space-y-0.5">
-      <div className="mb-1 font-medium text-ink">{label}</div>
-      <div className="flex justify-between gap-4">
-        <span className="text-[#16c784]">Bull (+2σ)</span>
-        <span className="text-ink">{priceTick(p.bull)}</span>
-      </div>
-      <div className="flex justify-between gap-4">
-        <span className="text-[#22c55e]">Optimistic (+1σ)</span>
-        <span className="text-ink">{priceTick(p.optimistic)}</span>
-      </div>
-      <div className="flex justify-between gap-4">
-        <span className="text-bitcoin">Base (model)</span>
-        <span className="text-ink">{priceTick(p.median)}</span>
-      </div>
-      <div className="flex justify-between gap-4">
-        <span className="text-[#f97316]">Pessimistic (−1σ)</span>
-        <span className="text-ink">{priceTick(p.pessimistic)}</span>
-      </div>
-      <div className="flex justify-between gap-4">
-        <span className="text-[#ef4444]">Bear (−2σ)</span>
-        <span className="text-ink">{priceTick(p.bear)}</span>
-      </div>
-      {p.dcaValue != null && (
-        <div className="mt-1 flex justify-between gap-4 border-t border-edge pt-1">
-          <span className="text-white">+ DCA stack</span>
-          <span className="font-medium text-white">{priceTick(p.dcaValue)}</span>
+function makeProjectionTooltip(data: BtcProjection) {
+  const { bandLabels } = data;
+  return function ProjectionTooltip({ active, payload }: any) {
+    if (!active || !payload || payload.length === 0) return null;
+    const p = payload[0].payload as {
+      days: number;
+      bear: number;
+      pessimistic: number;
+      median: number;
+      optimistic: number;
+      bull: number;
+      dcaValue?: number;
+    };
+    const date = new Date(GENESIS_MS + p.days * DAY_MS);
+    const label =
+      date.toLocaleString("default", { month: "short", timeZone: "UTC" }) +
+      " " +
+      date.getUTCFullYear();
+    return (
+      <div className="rounded-md border border-edge bg-night px-3 py-2 text-[11px] space-y-0.5">
+        <div className="mb-1 font-medium text-ink">{label}</div>
+        <div className="flex justify-between gap-4">
+          <span className="text-[#16c784]">{bandLabels.bull}</span>
+          <span className="text-ink">{priceTick(p.bull)}</span>
         </div>
-      )}
-    </div>
-  );
+        <div className="flex justify-between gap-4">
+          <span className="text-[#22c55e]">{bandLabels.optimistic}</span>
+          <span className="text-ink">{priceTick(p.optimistic)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-bitcoin">{bandLabels.median}</span>
+          <span className="text-ink">{priceTick(p.median)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-[#f97316]">{bandLabels.pessimistic}</span>
+          <span className="text-ink">{priceTick(p.pessimistic)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-[#ef4444]">{bandLabels.bear}</span>
+          <span className="text-ink">{priceTick(p.bear)}</span>
+        </div>
+        {p.dcaValue != null && (
+          <div className="mt-1 flex justify-between gap-4 border-t border-edge pt-1">
+            <span className="text-white">+ DCA stack</span>
+            <span className="font-medium text-white">{priceTick(p.dcaValue)}</span>
+          </div>
+        )}
+      </div>
+    );
+  };
 }
 
 // ─── DCA options ───────────────────────────────────────────────────────────────
@@ -192,11 +198,11 @@ function HoldingsProjectionPanel({
   data,
   snapshot,
 }: {
-  data: PowerLawResult;
+  data: BtcProjection;
   snapshot: Snapshot;
 }) {
   const { totalBtc, totalInvested, currentValue } = snapshot;
-  const { futurePoints, projections, nowDays, sigma, intercept, beta } = data;
+  const { futurePoints, projections, nowDays, bandLabels, medianAt } = data;
 
   // ── DCA state ──────────────────────────────────────────────────────────────
   const [dcaAmount, setDcaAmount] = useState<DcaAmount>(0);
@@ -205,9 +211,12 @@ function HoldingsProjectionPanel({
    * Daily DCA accumulation — runs once per DCA amount selection.
    *
    * Strategy: BASE scenario only. Each future day the user buys
-   * `dcaAmount / modelPrice(day)` BTC at the power-law model price.
-   * Portfolio value at each monthly checkpoint =
-   *   (existingBtc + accumulated DCA BTC) × modelPrice(checkpoint).
+   * `dcaAmount / medianModelPrice(day)` BTC at the active model's median
+   * price. Portfolio value at each monthly checkpoint =
+   *   (existingBtc + accumulated DCA BTC) × medianModelPrice(checkpoint).
+   *
+   * Calls `data.medianAt(day)` so the same loop works for both Power Law
+   * and Quantile Bands without branching on model id.
    *
    * Returns one value per futurePoints entry, aligned by index.
    */
@@ -222,7 +231,7 @@ function HoldingsProjectionPanel({
     for (let d = startDay; d <= endDay; d++) {
       // Buy at model price on every day *after* today
       if (d > startDay) {
-        const modelPriceDay = Math.pow(10, intercept + beta * Math.log10(d));
+        const modelPriceDay = medianAt(d);
         accBtc += dcaAmount / modelPriceDay;
       }
       // Capture value at each monthly checkpoint (futurePoints are ~30 days apart)
@@ -236,7 +245,7 @@ function HoldingsProjectionPanel({
       }
     }
     return result;
-  }, [dcaAmount, futurePoints, nowDays, intercept, beta]);
+  }, [dcaAmount, futurePoints, nowDays, medianAt, totalBtc]);
 
   // Transform future price points → portfolio value points for the chart,
   // merging in the DCA overlay values when active.
@@ -301,17 +310,40 @@ function HoldingsProjectionPanel({
 
   // Projection cards: show portfolio value for bear/base/bull
   const scenarios = [
-    { key: "bear" as const, label: "Bear (−2σ)", color: "#ef4444" },
-    { key: "pessimistic" as const, label: "Pessimistic (−1σ)", color: "#f97316" },
-    { key: "model" as const, label: "Base (model)", color: "#f7931a" },
-    { key: "optimistic" as const, label: "Optimistic (+1σ)", color: "#22c55e" },
-    { key: "bull" as const, label: "Bull (+2σ)", color: "#16c784" },
+    { key: "bear" as const, label: bandLabels.bear, color: "#ef4444" },
+    { key: "pessimistic" as const, label: bandLabels.pessimistic, color: "#f97316" },
+    { key: "model" as const, label: bandLabels.median, color: "#f7931a" },
+    { key: "optimistic" as const, label: bandLabels.optimistic, color: "#22c55e" },
+    { key: "bull" as const, label: bandLabels.bull, color: "#16c784" },
   ];
+
+  const Tooltip2 = useMemo(() => makeProjectionTooltip(data), [data]);
+
+  // Model-specific caption explaining how the bands are derived. Power Law's
+  // bands come from log-residual sigma; Quantile Bands are the rearranged
+  // conditional quantiles themselves — no σ multiplier applies.
+  const bandsCaption =
+    data.id === "powerlaw" && data.sigma != null ? (
+      <>
+        Each σ step multiplies or divides the model price by{" "}
+        <span className="text-ink">{Math.pow(10, data.sigma).toFixed(2)}×</span>{" "}
+        (derived from {data.points.length} weekly price points).{" "}
+      </>
+    ) : (
+      <>
+        Bands are the rearranged conditional quantiles of log₁₀(price) from
+        Cowen (2026)&apos;s asymmetric quadratic regression in centered
+        log-time — Q10/Q25/Q50/Q75/Q95.{" "}
+      </>
+    );
+
+  const modelFairValueLabel =
+    data.id === "powerlaw" ? "Power-law fair value" : "Quantile median (Q50)";
 
   return (
     <>
       <Panel
-        title="My stack projection — portfolio value by scenario"
+        title={`My stack projection — portfolio value by scenario (${data.modelLabel})`}
         legend={
           <span className="flex flex-wrap gap-3">
             {scenarios.map((s) => (
@@ -348,7 +380,7 @@ function HoldingsProjectionPanel({
             // not a quote, and pairing them defuses the "wait, BTC is $122K?"
             // misread.
             { label: "Live BTC price", value: priceTick(data.currentPrice) + " / BTC" },
-            { label: "Power-law fair value", value: priceTick(data.modelPriceNow) + " / BTC" },
+            { label: modelFairValueLabel, value: priceTick(data.modelPriceNow) + " / BTC" },
           ].map(({ label, value }) => (
             <div key={label} className="rounded bg-night px-3 py-1.5 text-[11px]">
               <span className="text-faint">{label}: </span>
@@ -418,7 +450,7 @@ function HoldingsProjectionPanel({
                 width={62}
                 allowDataOverflow
               />
-              <Tooltip content={<ProjectionTooltip />} />
+              <Tooltip content={<Tooltip2 />} />
 
               {/* Cost-basis reference line */}
               <ReferenceLine
@@ -525,16 +557,14 @@ function HoldingsProjectionPanel({
               ? (totalBtc * 1e8).toLocaleString(undefined, { maximumFractionDigits: 0 }) + " sats"
               : totalBtc.toFixed(4) + " BTC"}
           </span>
-          . Each σ step multiplies or divides the model price by{" "}
-          <span className="text-ink">{Math.pow(10, sigma).toFixed(2)}×</span>{" "}
-          (derived from {data.points.length} weekly price points).{" "}
+          . {bandsCaption}
           {dcaAmount > 0 ? (
             <>
               The <span className="text-white">white line</span> shows your
               projected stack if you add{" "}
-              <span className="text-white">${dcaAmount}/day</span> at the
-              power-law model price — buying price and portfolio value both
-              follow the base scenario.{" "}
+              <span className="text-white">${dcaAmount}/day</span> at the{" "}
+              {data.modelLabel.toLowerCase()} model price — buying price and
+              portfolio value both follow the base scenario.{" "}
             </>
           ) : null}
           The dashed gray line is your total cost basis of{" "}
@@ -543,24 +573,26 @@ function HoldingsProjectionPanel({
         </p>
       </Panel>
 
-      <Panel title="My stack — power-law milestones">
+      <Panel title={`My stack — ${data.modelLabel.toLowerCase()} milestones`}>
         <div className="overflow-x-auto">
           <table className="w-full text-[12px]">
             <thead>
               <tr className="border-b border-edge text-left">
                 <th className="pb-2 pr-4 font-medium text-muted">Date</th>
                 <th className="pb-2 pr-4 font-medium" style={{ color: "#ef4444" }}>
-                  Bear (−2σ)
+                  {bandLabels.bear}
                 </th>
                 <th className="pb-2 pr-4 font-medium" style={{ color: "#f97316" }}>
-                  Pessimistic (−1σ)
+                  {bandLabels.pessimistic}
                 </th>
-                <th className="pb-2 pr-4 font-medium text-bitcoin">Base</th>
+                <th className="pb-2 pr-4 font-medium text-bitcoin">
+                  {bandLabels.median}
+                </th>
                 <th className="pb-2 pr-4 font-medium" style={{ color: "#22c55e" }}>
-                  Optimistic (+1σ)
+                  {bandLabels.optimistic}
                 </th>
                 <th className="pb-2 font-medium" style={{ color: "#16c784" }}>
-                  Bull (+2σ)
+                  {bandLabels.bull}
                 </th>
               </tr>
             </thead>
@@ -604,36 +636,42 @@ function HoldingsProjectionPanel({
 const FORECAST_YEARS = 5;
 const FORECAST_DAYS = FORECAST_YEARS * 365;
 
-export function PowerLawSection({
-  data,
-  snapshot,
-}: {
-  data: PowerLawResult;
+interface ProjectionSectionProps {
+  /** Both model results, pre-computed by the parent so toggling is instant. */
+  models: Record<ProjectionModelId, BtcProjection>;
+  /** Which model to show first — defaults to "powerlaw" for continuity. */
+  defaultModel?: ProjectionModelId;
   snapshot?: Snapshot;
-}) {
+}
+
+export function ProjectionSection({
+  models,
+  defaultModel = "powerlaw",
+  snapshot,
+}: ProjectionSectionProps) {
+  const [activeId, setActiveId] = useState<ProjectionModelId>(defaultModel);
+  const data = models[activeId];
+
   const aboveModel = data.multiplier >= 1;
 
   // When the user opts in, append model-only points from "today" out to
-  // +5Y so the dashed power-law line projects forward. The actual-price line
+  // +5Y so the dashed model line projects forward. The actual-price line
   // has no `price` on these points, so it terminates at today automatically.
   const [extendForecast, setExtendForecast] = useState(false);
 
-  const forecastPoints = useMemo<PowerLawPoint[]>(() => {
+  const forecastPoints = useMemo<ProjectionPoint[]>(() => {
     if (!extendForecast) return [];
-    const pts: PowerLawPoint[] = [];
+    const pts: ProjectionPoint[] = [];
     // Weekly cadence keeps the projection light without affecting visual
-    // smoothness — the model is a straight line in log-log space.
+    // smoothness — both models are smooth in log-log space.
     const step = 7;
     const startDay = Math.round(data.nowDays) + step;
     const endDay = Math.round(data.nowDays + FORECAST_DAYS);
     for (let d = startDay; d <= endDay; d += step) {
-      pts.push({
-        days: d,
-        model: Math.pow(10, data.intercept + data.beta * Math.log10(d)),
-      });
+      pts.push({ days: d, model: data.medianAt(d) });
     }
     return pts;
-  }, [extendForecast, data.nowDays, data.intercept, data.beta]);
+  }, [extendForecast, data]);
 
   // Series passed to the chart — historical points unchanged when forecast is
   // off; appended with model-only future points when on.
@@ -702,12 +740,62 @@ export function PowerLawSection({
   const xTicks = useMemo(() => daysToTicks(xLo, xHi), [xLo, xHi]);
   const xFormatter = useMemo(() => daysTickFormatter(xLo, xHi), [xLo, xHi]);
 
+  // Model-aware metric cards. Power Law has β / R² from the regression fit;
+  // Quantile Bands doesn't fit anything (coefficients come from the paper),
+  // so we show μ and the band span instead.
+  const trailingMetrics = useMemo(() => {
+    if (data.id === "powerlaw") {
+      return [
+        { label: "Slope β", value: (data.beta ?? 0).toFixed(3) },
+        { label: "Fit R²", value: ((data.r2 ?? 0) * 100).toFixed(1) + "%" },
+      ];
+    }
+    return [
+      { label: "Centering μ", value: (data.centeringMu ?? 0).toFixed(4) },
+      { label: "Bands shown", value: "Q10 – Q95" },
+    ];
+  }, [data]);
+
+  const headlineModelLabel = data.modelLabel;
+
   return (
     <div className="space-y-3">
+      {/* ── Model picker ─────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] uppercase tracking-wide text-faint">
+          Model
+        </span>
+        {(Object.keys(models) as ProjectionModelId[]).map((id) => {
+          const isActive = id === activeId;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveId(id)}
+              aria-pressed={isActive}
+              className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                isActive
+                  ? "bg-bitcoin text-night"
+                  : "bg-night text-muted hover:text-ink"
+              }`}
+            >
+              {models[id].modelLabel}
+            </button>
+          );
+        })}
+        <span className="ml-1 text-[11px] text-faint">
+          {data.id === "powerlaw" ? (
+            <>Least-squares fit of log₁₀(price) vs log₁₀(time)</>
+          ) : (
+            <>Cowen (2026) asymmetric quadratic quantile regression</>
+          )}
+        </span>
+      </div>
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <MetricCard label="Current price" value={formatUsd(data.currentPrice)} />
         <MetricCard
-          label="Power-law model"
+          label={`${headlineModelLabel} model`}
           value={formatUsd(data.modelPriceNow)}
         />
         <MetricCard
@@ -715,15 +803,13 @@ export function PowerLawSection({
           value={data.multiplier.toFixed(2) + "×"}
           accent={aboveModel ? "up" : "down"}
         />
-        <MetricCard label="Slope β" value={data.beta.toFixed(3)} />
-        <MetricCard
-          label="Fit R²"
-          value={(data.r2 * 100).toFixed(1) + "%"}
-        />
+        {trailingMetrics.map((m) => (
+          <MetricCard key={m.label} label={m.label} value={m.value} />
+        ))}
       </div>
 
       <Panel
-        title="Bitcoin power law — price vs. time (log-log)"
+        title={`Bitcoin ${headlineModelLabel.toLowerCase()} — price vs. time (log-log)`}
         legend={
           <>
             <span className="flex items-center gap-1.5 text-[11px] text-muted">
@@ -732,7 +818,7 @@ export function PowerLawSection({
             </span>
             <span className="flex items-center gap-1.5 text-[11px] text-muted">
               <span className="inline-block h-0 w-3.5 border-t-2 border-dashed border-muted" />
-              power-law model
+              {headlineModelLabel.toLowerCase()} model
             </span>
             <span className="flex items-center gap-1.5 text-[11px] text-muted">
               <span className="inline-block h-2 w-2 rounded-full bg-up" />
@@ -795,7 +881,7 @@ export function PowerLawSection({
                 width={54}
                 allowDataOverflow
               />
-              <Tooltip content={<PowerLawTooltip />} />
+              <Tooltip content={<ModelLineTooltip />} />
               <Line
                 type="linear"
                 dataKey="model"
@@ -838,16 +924,29 @@ export function PowerLawSection({
           </ResponsiveContainer>
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-muted">
-          Bitcoin&apos;s price has historically tracked a power law of time
-          since the 2009 genesis block — close to a straight line on these
-          log-log axes. The dashed line is a least-squares fit of the price
-          history; the green dot marks today. A market / model ratio above
-          1.0 means price sits above the long-run trend. Shown for educational
-          purposes — not a prediction.
+          {data.id === "powerlaw" ? (
+            <>
+              Bitcoin&apos;s price has historically tracked a power law of
+              time since the 2009 genesis block — close to a straight line on
+              these log-log axes. The dashed line is a least-squares fit of
+              the price history; the green dot marks today. A market / model
+              ratio above 1.0 means price sits above the long-run trend.
+            </>
+          ) : (
+            <>
+              The dashed line is the Q50 (median) of Cowen (2026)&apos;s
+              asymmetric quadratic quantile regression, evaluated at each
+              date and rearranged for monotonicity. Unlike the linear power
+              law, this model bends slightly downward in log-log space — the
+              upper-tail quantiles curve harder than the lower-tail ones,
+              encoding a compressing ceiling. The green dot marks today.
+            </>
+          )}{" "}
+          Shown for educational purposes — not a prediction.
         </p>
       </Panel>
 
-      <Panel title="Power-law model — forward fair value">
+      <Panel title={`${headlineModelLabel} — forward fair value`}>
         <div className="grid grid-cols-3 gap-2">
           {data.projections.map((p) => (
             <div key={p.label} className="rounded-lg bg-night px-4 py-3">
@@ -857,10 +956,10 @@ export function PowerLawSection({
               </div>
               <div className="mt-1 flex flex-col gap-0.5 text-[10px]">
                 <span style={{ color: "#16c784" }}>
-                  Bull: {priceTick(p.bull)}
+                  {data.bandLabels.bull}: {priceTick(p.bull)}
                 </span>
                 <span style={{ color: "#ef4444" }}>
-                  Bear: {priceTick(p.bear)}
+                  {data.bandLabels.bear}: {priceTick(p.bear)}
                 </span>
               </div>
             </div>

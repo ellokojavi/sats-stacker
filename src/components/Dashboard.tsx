@@ -12,6 +12,7 @@ import {
   computeExchangeBreakdown,
 } from "@/lib/analytics";
 import { computePowerLaw } from "@/lib/powerlaw";
+import { computeQuantileBands } from "@/lib/quantileBands";
 import {
   loadImportedLedger,
   saveImportedLedger,
@@ -34,7 +35,7 @@ import { ProfitabilityBar } from "./ProfitabilityBar";
 import { CapitalEfficiency } from "./CapitalEfficiency";
 import { HallOfFame } from "./HallOfFame";
 import { TransactionsTable } from "./TransactionsTable";
-import { PowerLawSection } from "./PowerLawSection";
+import { ProjectionSection } from "./ProjectionSection";
 import { TaxSection } from "./TaxSection";
 import { WhatIfSection } from "./WhatIfSection";
 import { SettingsSection } from "./SettingsSection";
@@ -43,7 +44,7 @@ type TabId =
   | "overview"
   | "performance"
   | "whatif"
-  | "powerlaw"
+  | "projection"
   | "tax"
   | "ledger"
   | "settings";
@@ -52,7 +53,10 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "performance", label: "Performance" },
   { id: "whatif", label: "What if?" },
-  { id: "powerlaw", label: "Power Law" },
+  // "Projection" replaced the old "Power Law" tab — it now hosts a
+  // model toggle (Power Law vs Quantile Bands) so the same charts can be
+  // viewed under either trajectory model.
+  { id: "projection", label: "Projection" },
   { id: "tax", label: "Tax" },
   { id: "ledger", label: "Ledger" },
   { id: "settings", label: "Settings" },
@@ -224,11 +228,23 @@ export function Dashboard({
     () => computeExchangeBreakdown(effectiveTxns, effectivePrice),
     [effectiveTxns, effectivePrice],
   );
-  // Power Law fit always uses the full price history + live price — it's
-  // a model of the network, not the user's portfolio, and shouldn't get
-  // foreshortened by the time cursor.
-  const powerLaw = useMemo(
-    () => computePowerLaw(priceHistory, price, bundled.date),
+  // Projection models always use the full price history + live price —
+  // they describe the network, not the user's portfolio, and shouldn't get
+  // foreshortened by the time cursor. We compute both up front so the
+  // section's in-component toggle switches instantly without recomputing.
+  const projectionModels = useMemo(
+    () => ({
+      powerlaw: computePowerLaw({
+        priceHistory,
+        currentPrice: price,
+        asOf: bundled.date,
+      }),
+      quantile: computeQuantileBands({
+        priceHistory,
+        currentPrice: price,
+        asOf: bundled.date,
+      }),
+    }),
     [priceHistory, price, bundled.date],
   );
 
@@ -399,8 +415,11 @@ export function Dashboard({
                 asOf={bundled.date}
               />
             )}
-            {tab === "powerlaw" && (
-              <PowerLawSection data={powerLaw} snapshot={snapshot} />
+            {tab === "projection" && (
+              <ProjectionSection
+                models={projectionModels}
+                snapshot={snapshot}
+              />
             )}
             {tab === "tax" && (
               <TaxSection lots={lots} currentPrice={effectivePrice} />

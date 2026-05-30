@@ -1,77 +1,50 @@
-import type { PricePoint } from "./types";
+import type {
+  BandLabels,
+  BtcProjection,
+  FuturePoint,
+  ProjectionInput,
+  ProjectionMilestone,
+  ProjectionPoint,
+} from "./projection";
 
 /**
  * Bitcoin power-law model. Bitcoin's price has historically tracked a power
  * law of time since the genesis block (2009-01-03): a straight line in
  * log-log space. This fits that line to the price history by least squares.
+ *
+ * Conforms to the shared `BtcProjection` contract so the Projection section
+ * can swap between this and the Quantile Bands model behind a toggle.
  */
 
 const GENESIS_MS = Date.UTC(2009, 0, 3);
 const DAY_MS = 86400000;
 
-export interface PowerLawPoint {
-  days: number;
-  /**
-   * Actual closing price. Optional so the chart can stitch in model-only
-   * forecast points whose `price` is undefined — that breaks the orange
-   * actual-price line at "today" while the dashed model line keeps going.
-   */
-  price?: number;
-  model: number;
-}
+// Re-export the shared shapes under their historical names so existing
+// imports continue to compile (PowerLawPoint, PowerLawProjection, etc.).
+export type PowerLawPoint = ProjectionPoint;
+export type PowerLawProjection = ProjectionMilestone;
+export type { FuturePoint };
 
 /**
- * A forward projection at a specific milestone date, including bear/base/bull
- * scenarios derived from the ±1σ and ±2σ bands of the log residuals.
+ * Power Law result — same shape as `BtcProjection` but with the
+ * power-law–specific fields (β, intercept, σ, R²) typed as required
+ * rather than optional, since this model always computes them.
  */
-export interface PowerLawProjection {
-  label: string;
-  /** Median model price */
-  model: number;
-  /** +1σ scenario */
-  optimistic: number;
-  /** +2σ scenario */
-  bull: number;
-  /** −1σ scenario */
-  pessimistic: number;
-  /** −2σ scenario */
-  bear: number;
-}
-
-/**
- * A single point in the future price projection series (monthly cadence).
- * All values are BTC prices — multiply by totalBtc to get portfolio value.
- */
-export interface FuturePoint {
-  /** Days since the 2009-01-03 genesis block */
-  days: number;
-  /** −2σ scenario price */
-  bear: number;
-  /** −1σ scenario price */
-  pessimistic: number;
-  /** Median model price */
-  median: number;
-  /** +1σ scenario price */
-  optimistic: number;
-  /** +2σ scenario price */
-  bull: number;
-}
-
-export interface PowerLawResult {
+export interface PowerLawResult extends BtcProjection {
   beta: number;
   intercept: number;
-  r2: number;
   /** Std dev of log10 residuals — used to derive the ±1σ / ±2σ scenario bands */
   sigma: number;
-  currentPrice: number;
-  modelPriceNow: number;
-  multiplier: number;
-  nowDays: number;
-  points: PowerLawPoint[];
-  projections: PowerLawProjection[];
-  /** Monthly BTC price projections from today to +15 years (all 5 scenarios) */
-  futurePoints: FuturePoint[];
+  r2: number;
 }
+
+const BAND_LABELS: BandLabels = {
+  bear: "Bear (−2σ)",
+  pessimistic: "Pessimistic (−1σ)",
+  median: "Base (model)",
+  optimistic: "Optimistic (+1σ)",
+  bull: "Bull (+2σ)",
+};
 
 export function daysSinceGenesis(dateStr: string): number {
   const ms = new Date(dateStr.slice(0, 10) + "T00:00:00Z").getTime();
@@ -92,11 +65,11 @@ export function modelPrice(
   return Math.pow(10, intercept + beta * Math.log10(days) + sigmaOffset);
 }
 
-export function computePowerLaw(
-  priceHistory: PricePoint[],
-  currentPrice: number,
-  asOf: string,
-): PowerLawResult {
+export function computePowerLaw({
+  priceHistory,
+  currentPrice,
+  asOf,
+}: ProjectionInput): PowerLawResult {
   const xs: number[] = [];
   const ys: number[] = [];
   for (const point of priceHistory) {
@@ -176,6 +149,9 @@ export function computePowerLaw(
   }
 
   return {
+    id: "powerlaw",
+    modelLabel: "Power Law",
+    bandLabels: BAND_LABELS,
     beta,
     intercept,
     r2,
@@ -187,5 +163,6 @@ export function computePowerLaw(
     points,
     projections,
     futurePoints,
+    medianAt: (days: number) => modelPrice(days, intercept, beta),
   };
 }

@@ -5,14 +5,14 @@ import type { ReactNode } from "react";
 /**
  * Compact preset-button row shown above every zoomable chart.
  *
- * Visual language matches the existing DCA selector in PowerLawSection:
+ * Visual language matches the existing DCA selector in ProjectionSection:
  * bitcoin-orange pill for the active preset, dark night-grey pills for the
  * others. A "Reset" link appears whenever the chart is in a custom (drag-
  * selected) zoom so the user can get back to full range without hunting.
  *
  * `extras` is an optional slot that renders to the right of the preset buttons
  * (and the Reset link) but before the drag-hint — used for chart-specific
- * toggles like the Power-Law chart's +5Y forecast pill.
+ * toggles like the Projection chart's +5Y forecast pill.
  */
 
 export type PresetOption = { id: string; label: string };

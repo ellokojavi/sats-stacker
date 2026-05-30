@@ -19,7 +19,7 @@ The script boots a headless Chromium, navigates each tab, waits for charts to re
 | -------------------------- | ----------------------- | ---------------------------------------------------------------------------- |
 | `01-overview-hero.png`     | Overview                | Hero shot: KPI snapshot + HODLings chart + time machine. README header.      |
 | `02-performance.png`       | Performance             | Submarine chart + CAGR vs. benchmarks — signals analytical depth.            |
-| `03-power-law.png`         | Power Law               | Log-log fit with fair-value band + DCA overlay — visually distinctive.       |
+| `03-projection.png`        | Projection              | Log-log chart with model toggle (Power Law / Quantile Bands) + DCA overlay.  |
 | `04-tax.png`               | Tax                     | FIFO/LIFO/HIFO sell simulator — proves Phase 3 shipped.                      |
 | `05-whatif.png` *(opt.)*   | What If?                | DCA vs. counterfactual strategies scoreboard.                                |
 
