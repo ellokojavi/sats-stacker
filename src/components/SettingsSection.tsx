@@ -8,6 +8,7 @@ import type {
   Transaction,
   ViewMode,
 } from "@/lib/types";
+import type { NamedFile } from "@/lib/etl/pipeline";
 import {
   buildLedgerCsv,
   downloadTextFile,
@@ -33,10 +34,13 @@ export function SettingsSection({
   privateLedger,
   lastImportStats,
   priceHistory,
-  onImport,
+  onAppendFiles,
+  onReplaceFiles,
   onClearImported,
   onRemoveImportedFile,
   onClearImportedUnrecognized,
+  importMessage,
+  onDismissImportMessage,
 }: {
   mode: ViewMode;
   onModeChange: (mode: ViewMode) => void;
@@ -54,13 +58,22 @@ export function SettingsSection({
   lastImportStats: EtlStats | null;
   /** Bundled BTC price history — drives the ETL anomaly cross-check. */
   priceHistory: PricePoint[];
-  onImport: (result: EtlResult) => void;
+  /** Add the dropped files to the existing imported pool (dedupe by name). */
+  onAppendFiles: (files: NamedFile[]) => void;
+  /** Wipe the existing imported pool and replace it with the dropped files. */
+  onReplaceFiles: (files: NamedFile[]) => void;
   onClearImported: () => void;
-  /** Remove a single unrecognized file from the imported ledger's record. */
+  /** Remove a single file (recognized or unrecognized) from the imported pool. */
   onRemoveImportedFile: (index: number) => void;
-  /** Remove all unrecognized files from the imported ledger's record. */
+  /** Remove every unrecognized file from the imported pool. */
   onClearImportedUnrecognized: () => void;
+  /** Last-drop feedback rendered next to the importer. Parent-owned. */
+  importMessage: { tone: "info" | "warn"; text: string } | null;
+  onDismissImportMessage: () => void;
 }) {
+  // "add" — drop more files into the existing pool (default when data is loaded).
+  // "replace" — destructive replace; gated behind an explicit click.
+  const [importerMode, setImporterMode] = useState<"add" | "replace">("add");
   const [showImporter, setShowImporter] = useState(
     source === "demo" && !imported,
   );
@@ -160,13 +173,43 @@ export function SettingsSection({
               Strike · Coinbase · Cash App · Swan are auto-detected.
             </span>
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowImporter((o) => !o)}
-                className="rounded border border-edge px-2.5 py-1 text-[11px] text-ink hover:bg-edge"
-              >
-                {showImporter ? "Hide importer" : imported ? "Replace CSVs" : "Add CSVs"}
-              </button>
+              {!showImporter && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImporterMode("add");
+                      setShowImporter(true);
+                      onDismissImportMessage();
+                    }}
+                    className="rounded border border-bitcoin/60 px-2.5 py-1 text-[11px] text-bitcoin hover:bg-bitcoin/10"
+                  >
+                    Add CSVs
+                  </button>
+                  {imported && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImporterMode("replace");
+                        setShowImporter(true);
+                        onDismissImportMessage();
+                      }}
+                      className="rounded border border-edge px-2.5 py-1 text-[11px] text-muted hover:text-ink"
+                    >
+                      Replace all CSVs
+                    </button>
+                  )}
+                </>
+              )}
+              {showImporter && (
+                <button
+                  type="button"
+                  onClick={() => setShowImporter(false)}
+                  className="rounded border border-edge px-2.5 py-1 text-[11px] text-ink hover:bg-edge"
+                >
+                  Hide importer
+                </button>
+              )}
               {imported && (
                 <button
                   type="button"
@@ -183,12 +226,47 @@ export function SettingsSection({
           </div>
 
           {showImporter && (
-            <ImportDropzone
-              onImport={(result) => {
-                onImport(result);
-                setShowImporter(false);
-              }}
-            />
+            <>
+              <p className="text-[11px] text-faint">
+                {importerMode === "add" && imported
+                  ? "New files are merged into your pool. Re-dropping a file with the same name replaces just that file."
+                  : importerMode === "replace"
+                    ? "This will wipe your imported pool and replace it with whatever you drop below."
+                    : "Drop your first batch of exchange exports. You can add more later without losing what's already loaded."}
+              </p>
+              <ImportDropzone
+                mode={importerMode === "add" && imported ? "append" : "replace"}
+                onFiles={(files) => {
+                  if (importerMode === "add" && imported) {
+                    onAppendFiles(files);
+                  } else {
+                    onReplaceFiles(files);
+                  }
+                  setShowImporter(false);
+                }}
+              />
+            </>
+          )}
+
+          {importMessage && !showImporter && (
+            <div
+              className={`flex items-start gap-2 rounded border px-3 py-2 text-[11px] ${
+                importMessage.tone === "warn"
+                  ? "border-down/40 text-down"
+                  : "border-up/40 text-up"
+              }`}
+              role="status"
+            >
+              <span className="flex-1">{importMessage.text}</span>
+              <button
+                type="button"
+                onClick={onDismissImportMessage}
+                className="text-faint hover:text-ink"
+                aria-label="Dismiss import message"
+              >
+                ×
+              </button>
+            </div>
           )}
 
           {!showImporter && !imported && privateLedger === null && (

@@ -19,7 +19,14 @@ import {
   clearImportedLedger,
   loadMode,
   saveMode,
+  loadRawFiles,
+  saveRawFiles,
 } from "@/lib/importStore";
+import {
+  normalizeFiles,
+  mergeEtlResults,
+  type NamedFile,
+} from "@/lib/etl/pipeline";
 import { UnitProvider } from "@/lib/unit";
 import { TopBar } from "./TopBar";
 import { RealModeEmptyState } from "./RealModeEmptyState";
@@ -79,6 +86,16 @@ export function Dashboard({
 }) {
   const [mode, setMode] = useState<ViewMode>(privateLedger ? "real" : "demo");
   const [imported, setImported] = useState<EtlResult | null>(null);
+  // Raw NamedFile[] backing the imported ledger — the source of truth.
+  // When the user appends another CSV, we merge by file name into this list
+  // and re-run the ETL over the union.
+  const [importedFiles, setImportedFiles] = useState<NamedFile[]>([]);
+  // One-shot feedback rendered next to the Settings importer after a drop:
+  // tells the user how many files were merged, replaced, or skipped.
+  const [importMessage, setImportMessage] = useState<{
+    tone: "info" | "warn";
+    text: string;
+  } | null>(null);
   const [tab, setTab] = useState<TabId>("overview");
   // On mobile we collapse the secondary Overview panels behind a "Show details"
   // button so a thumb-scroll lands on the headline chart and heatmap, not a
@@ -96,6 +113,8 @@ export function Dashboard({
   useEffect(() => {
     const savedLedger = loadImportedLedger();
     if (savedLedger) setImported(savedLedger);
+    const savedFiles = loadRawFiles();
+    if (savedFiles.length > 0) setImportedFiles(savedFiles);
     const savedMode = loadMode();
     // Only honor saved "demo" if no real data is available — otherwise
     // imported data should default to real mode on refresh, matching the
@@ -252,45 +271,268 @@ export function Dashboard({
     setMode(next);
     saveMode(next);
   }
-  function handleImport(result: EtlResult) {
+
+  /**
+   * Commit a new raw-file pool: re-run the ETL, persist both the raw files
+   * and the derived ledger, switch into real mode, and bounce the user to
+   * Settings so the import summary is the first thing they see.
+   *
+   * `recognizedAdded` counts files in this drop that mapped to a known
+   * exchange (used for the "added N file(s)" toast).
+   */
+  function commitFiles(
+    nextFiles: NamedFile[],
+    opts: {
+      recognizedAdded?: number;
+      replacedNames?: string[];
+      skippedNames?: string[];
+      kind: "append" | "replace";
+    },
+  ) {
+    const result = normalizeFiles(nextFiles, "imported");
+    setImportedFiles(nextFiles);
+    saveRawFiles(nextFiles);
     setImported(result);
     saveImportedLedger(result);
     setMode("real");
     saveMode("real");
-    // Drop the user onto the Settings tab right after import so the import
-    // summary is the first thing they see — proves what was loaded, from
-    // where, and over what timeframe.
     setTab("settings");
+
+    // Build a one-line toast for the Settings importer.
+    const parts: string[] = [];
+    if (opts.kind === "replace") {
+      parts.push(
+        `Replaced your imported data with ${result.stats.filesIngested} file${
+          result.stats.filesIngested === 1 ? "" : "s"
+        }.`,
+      );
+    } else if (opts.recognizedAdded && opts.recognizedAdded > 0) {
+      parts.push(
+        `Added ${opts.recognizedAdded} file${
+          opts.recognizedAdded === 1 ? "" : "s"
+        } to your pool.`,
+      );
+    }
+    if (opts.replacedNames && opts.replacedNames.length > 0) {
+      parts.push(
+        `Re-imported ${opts.replacedNames.length} existing file${
+          opts.replacedNames.length === 1 ? "" : "s"
+        } (${opts.replacedNames.join(", ")}).`,
+      );
+    }
+    if (opts.skippedNames && opts.skippedNames.length > 0) {
+      parts.push(
+        `Skipped ${opts.skippedNames.length} unrecognized file${
+          opts.skippedNames.length === 1 ? "" : "s"
+        }.`,
+      );
+    }
+    setImportMessage(
+      parts.length > 0
+        ? {
+            tone:
+              opts.skippedNames && opts.skippedNames.length > 0
+                ? "warn"
+                : "info",
+            text: parts.join(" "),
+          }
+        : null,
+    );
   }
+
+  /**
+   * Replace the current imported pool with whatever just got dropped.
+   * Used by the real-mode empty state (no existing pool) and the explicit
+   * "Replace all CSVs" action in Settings.
+   */
+  function handleReplaceFiles(newFiles: NamedFile[]) {
+    if (newFiles.length === 0) return;
+    commitFiles(newFiles, { kind: "replace" });
+  }
+
+  /**
+   * Append the just-dropped files to the existing imported pool.
+   *
+   * Two paths, depending on whether we have the raw bytes for what's
+   * already loaded:
+   *
+   *  • **Raw-file pool present** (post-upgrade path) — dedupe by file name
+   *    (re-dropping `strike-2025.csv` replaces just that file), then re-run
+   *    the ETL over the union. Clean and round-trippable.
+   *
+   *  • **Raw-file pool empty but an imported ledger exists** (legacy path —
+   *    the user imported before raw-file persistence shipped) — we can't
+   *    re-ETL over files we don't have, so we ETL the new files alone,
+   *    then merge the two ledgers at the transaction level (dedupe by id).
+   *    The new files go into the raw-file pool so subsequent appends use
+   *    the clean path. **This is the path that previously, wrongly,
+   *    fell through to a destructive replace.**
+   *
+   *  • **Nothing imported at all** — semantically a first import.
+   */
+  function handleAppendFiles(newFiles: NamedFile[]) {
+    if (newFiles.length === 0) return;
+    const existing = importedFiles;
+
+    if (existing.length === 0 && imported) {
+      // Legacy path — preserve existing data via a transaction-level merge.
+      const newResult = normalizeFiles(newFiles, "imported");
+      const merged = mergeEtlResults(imported, newResult);
+      setImportedFiles(newFiles);
+      saveRawFiles(newFiles);
+      setImported(merged);
+      saveImportedLedger(merged);
+      setMode("real");
+      saveMode("real");
+      setTab("settings");
+      const recognized = newResult.stats.filesIngested;
+      const skipped = newResult.stats.filesSkipped;
+      const parts: string[] = [];
+      if (recognized > 0) {
+        parts.push(
+          `Added ${recognized} file${recognized === 1 ? "" : "s"} to your pool.`,
+        );
+      }
+      if (skipped > 0) {
+        parts.push(
+          `Skipped ${skipped} unrecognized file${skipped === 1 ? "" : "s"}.`,
+        );
+      }
+      parts.push(
+        "Files you imported before this update are preserved at the transaction level but can't be removed individually.",
+      );
+      setImportMessage({
+        tone: skipped > 0 ? "warn" : "info",
+        text: parts.join(" "),
+      });
+      return;
+    }
+
+    if (existing.length === 0) {
+      // Truly nothing to append to — first import.
+      commitFiles(newFiles, { kind: "replace" });
+      return;
+    }
+
+    // Clean path: dedupe by file name, re-ETL over the union.
+    const existingByName = new Map(existing.map((f) => [f.name, f]));
+    const replacedNames: string[] = [];
+    for (const f of newFiles) {
+      if (existingByName.has(f.name)) replacedNames.push(f.name);
+      existingByName.set(f.name, f);
+    }
+    const merged = Array.from(existingByName.values());
+    // We can't know "skipped" (unrecognized) until ETL runs — derive it from
+    // the result by comparing the new file names against the recognized set.
+    const result = normalizeFiles(merged, "imported");
+    const recognizedNames = new Set(
+      result.stats.files.filter((f) => f.recognized).map((f) => f.fileName),
+    );
+    const newRecognized = newFiles.filter((f) =>
+      recognizedNames.has(f.name),
+    ).length;
+    const newSkippedNames = newFiles
+      .filter((f) => !recognizedNames.has(f.name))
+      .map((f) => f.name);
+    // commitFiles re-normalizes — that's a few ms wasted, but keeps the
+    // commit path single-sourced. The repeat ETL is over a small file list.
+    commitFiles(merged, {
+      kind: "append",
+      recognizedAdded: newRecognized - replacedNames.length,
+      replacedNames,
+      skippedNames: newSkippedNames,
+    });
+  }
+
   function handleClear() {
     setImported(null);
+    setImportedFiles([]);
     clearImportedLedger();
+    setImportMessage(null);
     if (!privateLedger) {
       setMode("demo");
       saveMode("demo");
     }
   }
+
   /**
-   * Drop a single unrecognized file row from the imported ledger's stats.
-   * Doesn't touch transactions — unrecognized files contributed none — so we
-   * only need to update the bookkeeping and re-save.
+   * Remove a single file from the imported pool — recognized or not. For
+   * recognized files we re-run the ETL so the dashboard reflects the
+   * deletion; for unrecognized files we only need to update the FileImport
+   * row.
    */
   function handleRemoveImportedFile(index: number) {
     if (!imported) return;
     const file = imported.stats.files[index];
-    if (!file || file.recognized) return;
-    const nextFiles = imported.stats.files.filter((_, i) => i !== index);
-    const nextStats = {
-      ...imported.stats,
-      files: nextFiles,
-      filesSkipped: Math.max(0, imported.stats.filesSkipped - 1),
-    };
-    const next = { ...imported, stats: nextStats };
-    setImported(next);
-    saveImportedLedger(next);
+    if (!file) return;
+    // If we have the raw files cached, prefer re-running the ETL over a
+    // smaller pool — that keeps the FileImport accounting correct for both
+    // recognized and unrecognized rows.
+    if (importedFiles.length > 0) {
+      const nextFiles = importedFiles.filter((f) => f.name !== file.fileName);
+      if (nextFiles.length === importedFiles.length) {
+        // File isn't in the raw pool (older imports pre-rawFiles). Fall back
+        // to the legacy stats-only edit for the unrecognized case.
+        if (!file.recognized) {
+          const nextStats = {
+            ...imported.stats,
+            files: imported.stats.files.filter((_, i) => i !== index),
+            filesSkipped: Math.max(0, imported.stats.filesSkipped - 1),
+          };
+          const next = { ...imported, stats: nextStats };
+          setImported(next);
+          saveImportedLedger(next);
+        }
+        return;
+      }
+      if (nextFiles.length === 0) {
+        handleClear();
+        return;
+      }
+      const result = normalizeFiles(nextFiles, "imported");
+      setImportedFiles(nextFiles);
+      saveRawFiles(nextFiles);
+      setImported(result);
+      saveImportedLedger(result);
+      return;
+    }
+    // Legacy path: no raw files cached. Only safe action is dropping an
+    // unrecognized row from the stats (no transactions to recompute).
+    if (!file.recognized) {
+      const nextFiles = imported.stats.files.filter((_, i) => i !== index);
+      const nextStats = {
+        ...imported.stats,
+        files: nextFiles,
+        filesSkipped: Math.max(0, imported.stats.filesSkipped - 1),
+      };
+      const next = { ...imported, stats: nextStats };
+      setImported(next);
+      saveImportedLedger(next);
+    }
   }
+
   function handleClearImportedUnrecognized() {
     if (!imported) return;
+    if (importedFiles.length > 0) {
+      const unrecognizedNames = new Set(
+        imported.stats.files.filter((f) => !f.recognized).map((f) => f.fileName),
+      );
+      const nextFiles = importedFiles.filter(
+        (f) => !unrecognizedNames.has(f.name),
+      );
+      if (nextFiles.length === importedFiles.length) {
+        // None of the cached raw files match the unrecognized rows — fall
+        // through to the legacy stats-only path so the user can still clear
+        // them.
+      } else {
+        const result = normalizeFiles(nextFiles, "imported");
+        setImportedFiles(nextFiles);
+        saveRawFiles(nextFiles);
+        setImported(result);
+        saveImportedLedger(result);
+        return;
+      }
+    }
     const recognized = imported.stats.files.filter((f) => f.recognized);
     if (recognized.length === imported.stats.files.length) return;
     const nextStats = {
@@ -328,7 +570,7 @@ export function Dashboard({
       {showEmptyState ? (
         <div className="mt-4">
           <RealModeEmptyState
-            onImport={handleImport}
+            onFiles={handleReplaceFiles}
             onBackToDemo={() => changeMode("demo")}
           />
         </div>
@@ -441,10 +683,13 @@ export function Dashboard({
                 privateLedger={privateLedger}
                 lastImportStats={imported?.stats ?? null}
                 priceHistory={priceHistory}
-                onImport={handleImport}
+                onAppendFiles={handleAppendFiles}
+                onReplaceFiles={handleReplaceFiles}
                 onClearImported={handleClear}
                 onRemoveImportedFile={handleRemoveImportedFile}
                 onClearImportedUnrecognized={handleClearImportedUnrecognized}
+                importMessage={importMessage}
+                onDismissImportMessage={() => setImportMessage(null)}
               />
             )}
           </div>

@@ -33,6 +33,28 @@ import {
   type ForwardPresetId,
 } from "./charts/dateRangePresets";
 
+/**
+ * Projection-chart-specific preset row: the shared backward presets plus a
+ * "Stack" slice that zooms the historical log-log chart to the user's
+ * stacking era. Unlike the HODLings chart, the default here stays on "All"
+ * — the headline of the Projection tab is the *full* BTC fit, not the
+ * user's slice of it.
+ */
+const PROJECTION_STACK_PRESET_ID = "STACK";
+const PROJECTION_HISTORICAL_PRESETS = [
+  ...BACKWARD_PRESETS,
+  { id: PROJECTION_STACK_PRESET_ID, label: "Stack" },
+];
+
+const PROJECTION_GENESIS_MS = Date.UTC(2009, 0, 3);
+const PROJECTION_DAY_MS = 86400000;
+
+/** ISO date string → days-since-genesis, the X unit the historical chart uses. */
+function projectionDaysFromDateStr(date: string): number {
+  const ms = new Date(date.slice(0, 10) + "T00:00:00Z").getTime();
+  return Math.max(1, (ms - PROJECTION_GENESIS_MS) / PROJECTION_DAY_MS);
+}
+
 const GENESIS_MS = Date.UTC(2009, 0, 3);
 const DAY_MS = 86400000;
 
@@ -698,7 +720,28 @@ export function ProjectionSection({
 
   const zoom = useChartZoom({ fullRange: fullRangeDays });
 
+  // Stacking-era bounds for the Stack preset, in days-since-genesis.
+  // Null when the user has no buys yet (e.g., demo mode pre-import), in
+  // which case the Stack button falls back to a full-range zoom so it
+  // still does something sensible.
+  const stackRangeDays = useMemo<[number, number] | null>(() => {
+    if (!snapshot || !snapshot.firstDate) return null;
+    const startDay = projectionDaysFromDateStr(snapshot.firstDate);
+    if (!Number.isFinite(startDay) || startDay >= fullRangeDays[1]) return null;
+    return [startDay, fullRangeDays[1]];
+  }, [snapshot, fullRangeDays]);
+
+  const historicalPresets = useMemo(
+    () =>
+      stackRangeDays ? PROJECTION_HISTORICAL_PRESETS : BACKWARD_PRESETS,
+    [stackRangeDays],
+  );
+
   const handlePreset = (id: string) => {
+    if (id === PROJECTION_STACK_PRESET_ID) {
+      zoom.setDomain(stackRangeDays ?? null, id);
+      return;
+    }
     const window = backwardWindowDays(
       id as BackwardPresetId,
       fullRangeDays[1],
@@ -828,7 +871,7 @@ export function ProjectionSection({
         }
       >
         <DateRangeControls
-          presets={BACKWARD_PRESETS}
+          presets={historicalPresets}
           activePreset={zoom.activePreset}
           onPreset={handlePreset}
           onReset={zoom.reset}

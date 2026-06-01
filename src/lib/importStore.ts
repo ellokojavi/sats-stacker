@@ -1,13 +1,23 @@
 import type { EtlResult, ViewMode } from "./types";
+import type { NamedFile } from "./etl/pipeline";
 
 /**
  * localStorage persistence for the browser-import feature. The user opted in
  * to remembering imported data on this device; this keeps both the imported
  * ledger and the chosen view mode between visits. Every function is a safe
  * no-op when storage is unavailable.
+ *
+ * Two parallel records are kept:
+ *   • LEDGER_KEY — the derived EtlResult (cached so we don't re-run the ETL
+ *     on every page load).
+ *   • FILES_KEY — the raw NamedFile[] that fed the ETL. This is the *source
+ *     of truth* for what's currently imported. When the user adds another
+ *     CSV, we merge it into this list (deduping by file name), re-run the
+ *     ETL, and persist both records again.
  */
 
 const LEDGER_KEY = "sats-stacker.ledger.v1";
+const FILES_KEY = "sats-stacker.files.v1";
 const MODE_KEY = "sats-stacker.mode.v1";
 
 export function saveImportedLedger(result: EtlResult): void {
@@ -60,8 +70,44 @@ export function loadImportedLedger(): EtlResult | null {
 export function clearImportedLedger(): void {
   try {
     localStorage.removeItem(LEDGER_KEY);
+    localStorage.removeItem(FILES_KEY);
   } catch {
     /* non-fatal */
+  }
+}
+
+export function saveRawFiles(files: NamedFile[]): void {
+  try {
+    localStorage.setItem(FILES_KEY, JSON.stringify(files));
+  } catch {
+    /* storage full or unavailable — non-fatal */
+  }
+}
+
+/**
+ * Recover the raw imported files so we can re-run the ETL when the user
+ * appends another CSV. Returns [] when nothing is stored or the payload is
+ * malformed — the dashboard still has the cached EtlResult to render from
+ * in that case; appending just falls back to "replace" semantics for that
+ * one drop.
+ */
+export function loadRawFiles(): NamedFile[] {
+  try {
+    const raw = localStorage.getItem(FILES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (f): f is NamedFile =>
+          typeof f === "object" &&
+          f !== null &&
+          typeof (f as NamedFile).name === "string" &&
+          typeof (f as NamedFile).content === "string",
+      )
+      .map((f) => ({ name: f.name, content: f.content }));
+  } catch {
+    return [];
   }
 }
 

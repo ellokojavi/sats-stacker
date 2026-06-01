@@ -1,47 +1,52 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { normalizeFiles, type NamedFile } from "@/lib/etl/pipeline";
-import type { EtlResult } from "@/lib/types";
+import type { NamedFile } from "@/lib/etl/pipeline";
 
 /**
- * Reusable drop zone that parses exchange CSVs entirely in the browser.
- * Used both in the real-mode empty state and the mode bar's replace control.
+ * Reusable drop zone that reads dropped CSV files into memory and hands the
+ * raw NamedFile[] off to the parent. The parent decides whether to *append*
+ * the new files to an existing pool or *replace* what's loaded — both call
+ * paths run the same ETL downstream, so the contract here is intentionally
+ * minimal.
+ *
+ * The `mode` prop is presentational only (button copy + headline). It
+ * doesn't change parsing behavior.
  */
 export function ImportDropzone({
-  onImport,
+  onFiles,
+  mode = "replace",
 }: {
-  onImport: (result: EtlResult) => void;
+  onFiles: (files: NamedFile[]) => void;
+  /**
+   * "append" — there's existing imported data; new files extend the pool.
+   * "replace" — fresh import (empty state or destructive replace action).
+   */
+  mode?: "append" | "replace";
 }) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function ingest(list: FileList | null) {
     if (!list || list.length === 0) return;
     setBusy(true);
-    setMessage(null);
     try {
       const files: NamedFile[] = [];
       for (const file of Array.from(list)) {
         files.push({ name: file.name, content: await file.text() });
       }
-      const result = normalizeFiles(files, "imported");
-      if (result.stats.total === 0) {
-        setMessage(
-          "None of those files were recognized as Strike, Coinbase, Cash App, or Swan exports.",
-        );
-      } else {
-        onImport(result);
-      }
-    } catch {
-      setMessage("Something went wrong reading those files.");
+      onFiles(files);
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
     }
   }
+
+  const headline =
+    mode === "append"
+      ? "Drop another exchange CSV to add it to your pool"
+      : "Drop your exchange CSV exports here";
 
   return (
     <div>
@@ -60,9 +65,7 @@ export function ImportDropzone({
           dragging ? "border-bitcoin bg-bitcoin/5" : "border-edge"
         }`}
       >
-        <p className="text-[13px] text-ink">
-          Drop your exchange CSV exports here
-        </p>
+        <p className="text-[13px] text-ink">{headline}</p>
         <p className="mt-1 text-[11px] text-muted">
           Strike, Coinbase, Cash App, Swan — drop several at once
         </p>
@@ -83,7 +86,6 @@ export function ImportDropzone({
           onChange={(e) => void ingest(e.target.files)}
         />
       </div>
-      {message && <p className="mt-2 text-[11px] text-down">{message}</p>}
     </div>
   );
 }

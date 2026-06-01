@@ -220,3 +220,122 @@ export function normalizeFiles(
   };
   return { transactions, stats, source };
 }
+
+/**
+ * Merge a freshly-ETL'd ledger into an existing imported ledger at the
+ * transaction level.
+ *
+ * Used as the fallback path when a user appends new CSVs but we don't have
+ * the raw bytes for the existing pool (the legacy case: their imported
+ * ledger was saved before raw-file persistence shipped). We can't re-run
+ * the ETL over the union, so we union the *transactions* instead, deduping
+ * by id, and rebuild the per-exchange / per-file stat tables from there.
+ *
+ * `incoming.transactions` are trusted to already be ETL'd and deduped
+ * within themselves; this function only handles overlap *between* the two
+ * sides.
+ */
+export function mergeEtlResults(
+  existing: EtlResult,
+  incoming: EtlResult,
+): EtlResult {
+  const dupKey = (t: Transaction) =>
+    t.id || `${t.date}|${t.btc}|${t.usd}|${t.source}`;
+
+  const seen = new Set<string>();
+  const merged: Transaction[] = [];
+  let crossDuplicates = 0;
+  for (const t of existing.transactions) {
+    const key = dupKey(t);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(t);
+  }
+  for (const t of incoming.transactions) {
+    const key = dupKey(t);
+    if (seen.has(key)) {
+      crossDuplicates += 1;
+      continue;
+    }
+    seen.add(key);
+    merged.push(t);
+  }
+  merged.sort((a, b) => a.date.localeCompare(b.date));
+
+  // Re-derive per-exchange stats from the merged transactions so the file
+  // and date counters match reality, not the sum of two snapshots.
+  const byExchangeMap = new Map<
+    string,
+    { count: number; firstDate: string | null; lastDate: string | null }
+  >();
+  for (const t of merged) {
+    const row = byExchangeMap.get(t.source) ?? {
+      count: 0,
+      firstDate: null,
+      lastDate: null,
+    };
+    row.count += 1;
+    row.firstDate = minDate(row.firstDate, t.date);
+    row.lastDate = maxDate(row.lastDate, t.date);
+    byExchangeMap.set(t.source, row);
+  }
+
+  // For "files per exchange," concatenating the two snapshots' file lists
+  // gives the right count — each ledger already knows how many files
+  // contributed to each exchange bucket.
+  const filesByExchange = new Map<string, number>();
+  for (const row of existing.stats.byExchange) {
+    filesByExchange.set(
+      row.exchange,
+      (filesByExchange.get(row.exchange) ?? 0) + row.files,
+    );
+  }
+  for (const row of incoming.stats.byExchange) {
+    filesByExchange.set(
+      row.exchange,
+      (filesByExchange.get(row.exchange) ?? 0) + row.files,
+    );
+  }
+
+  const byExchange: ExchangeStat[] = Array.from(byExchangeMap.entries()).map(
+    ([exchange, e]) => ({
+      exchange,
+      transactions: e.count,
+      files: filesByExchange.get(exchange) ?? 0,
+      firstDate: e.firstDate,
+      lastDate: e.lastDate,
+    }),
+  );
+
+  // FileImport bookkeeping: keep both sides' rows verbatim. We don't dedupe
+  // here because we can't know whether a file appeared in both pools (the
+  // legacy import doesn't carry raw bytes); leaving each side's history
+  // intact is the more honest record.
+  const files: FileImport[] = [...existing.stats.files, ...incoming.stats.files];
+
+  const firstDate = merged.length > 0 ? merged[0].date : null;
+  const lastDate = merged.length > 0 ? merged[merged.length - 1].date : null;
+
+  const stats: EtlStats = {
+    filesIngested:
+      existing.stats.filesIngested + incoming.stats.filesIngested,
+    filesSkipped:
+      existing.stats.filesSkipped + incoming.stats.filesSkipped,
+    duplicatesRemoved:
+      existing.stats.duplicatesRemoved +
+      incoming.stats.duplicatesRemoved +
+      crossDuplicates,
+    total: merged.length,
+    byExchange,
+    files,
+    firstDate,
+    lastDate,
+    importedAt: new Date().toISOString(),
+  };
+
+  return {
+    transactions: merged,
+    stats,
+    source: existing.source,
+  };
+}

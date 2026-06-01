@@ -1,4 +1,4 @@
-import type { EtlResult } from "@/lib/types";
+import type { NamedFile } from "@/lib/etl/pipeline";
 import { ImportDropzone } from "./ImportDropzone";
 
 /**
@@ -6,10 +6,10 @@ import { ImportDropzone } from "./ImportDropzone";
  * Walks the user through importing their first set of exchange CSVs.
  */
 export function RealModeEmptyState({
-  onImport,
+  onFiles,
   onBackToDemo,
 }: {
-  onImport: (result: EtlResult) => void;
+  onFiles: (files: NamedFile[]) => void;
   onBackToDemo: () => void;
 }) {
   return (
@@ -31,7 +31,7 @@ export function RealModeEmptyState({
         </div>
 
         <div className="mt-5">
-          <ImportDropzone onImport={onImport} />
+          <ImportDropzone onFiles={onFiles} mode="replace" />
         </div>
 
         <ol className="mt-4 space-y-1.5 text-[12px] text-muted">
