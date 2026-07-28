@@ -36,7 +36,7 @@ export function RealModeEmptyState({
 
         <ol className="mt-4 space-y-1.5 text-[12px] text-muted">
           <li>1. Export your transaction history as CSV from each exchange you use.</li>
-          <li>2. Drop the files above, or use Add exchange files — Strike, Coinbase, Cash App and Swan are recognized automatically.</li>
+          <li>2. Drop the files above — or drag in one parent folder with a subfolder per exchange and every CSV underneath is scanned. You can also use Add exchange files. Strike, Coinbase, Cash App and Swan are recognized automatically.</li>
           <li>3. Your dashboard appears, and your data is remembered on this device.</li>
         </ol>
 

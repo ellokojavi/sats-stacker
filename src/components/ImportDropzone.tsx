@@ -176,8 +176,8 @@ export function ImportDropzone({
       >
         <p className="text-[13px] text-ink">{headline}</p>
         <p className="mt-1 text-[11px] text-muted">
-          Strike, Coinbase, Cash App, Swan — one folder per exchange or a
-          handful of loose CSVs, mixed is fine
+          Strike, Coinbase, Cash App, Swan — one folder per exchange, a parent
+          folder holding all of them, or a handful of loose CSVs; mixed is fine
         </p>
         <div className="mt-3 flex flex-col items-center">
           <button
@@ -192,11 +192,18 @@ export function ImportDropzone({
             type="button"
             onClick={() => folderInputRef.current?.click()}
             disabled={busy}
+            title="Pick a single folder — a parent folder holding a subfolder per exchange works too; every CSV underneath is scanned."
             className="mt-2 rounded text-[11px] text-muted underline decoration-edge underline-offset-2 hover:text-ink disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bitcoin/40"
           >
             …or add a whole folder
           </button>
         </div>
+        <p className="mt-3 max-w-sm text-[11px] text-faint">
+          Keep a parent folder with a subfolder per exchange? Drag that folder
+          straight in — every CSV underneath gets scanned in one go. (Browse
+          dialogs tend to open inside a subfolder, so dragging the parent is the
+          surest way to grab them all at once.)
+        </p>
         <input
           ref={fileInputRef}
           type="file"

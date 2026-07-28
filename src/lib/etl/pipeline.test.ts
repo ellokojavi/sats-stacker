@@ -99,6 +99,174 @@ Timestamp,Transaction Type,Asset,Quantity Transacted,Spot Price Currency,Spot Pr
 2025-07-15T10:00:00Z,Buy,BTC,0.005,USD,40000,200,200,0,
 `;
 
+// ---------------------------------------------------------------------------
+// Parent-folder recursive scan (the webkitdirectory / folder-pick flow).
+//
+// When a user points <input webkitdirectory> at ONE parent folder (e.g.
+// "all CSVs/" holding a subfolder per exchange), the browser enumerates the
+// ENTIRE tree and stamps each file with a `webkitRelativePath` like
+// "all CSVs/Strike/strike.csv". ImportDropzone.ingestList
+// (src/components/ImportDropzone.tsx) maps every file to
+// `{ path: file.webkitRelativePath || file.name }`, and toNamedFiles filters
+// to `.csv` and reads each into a NamedFile whose `name` IS that relative
+// path. So the NamedFile[] that reaches normalizeFiles carries nested paths,
+// at whatever depth they sat under the picked parent.
+//
+// These tests reproduce that seam faithfully (path derivation + .csv filter)
+// with the SAME raw, source-native CSV formats the generator emits — Coinbase
+// and Swan preamble junk, Cash App quoted/$-prefixed fields, Strike deposit
+// rows that get filtered — and assert that all four exchanges are recognized
+// and merged in a single pick, regardless of nesting depth.
+// ---------------------------------------------------------------------------
+
+// Strike synthetic account statement — Deposit rows are filtered; 2 Purchases.
+const NESTED_STRIKE = `Reference,Date & Time (UTC),Transaction Type,Amount USD,Fee USD,Amount BTC,Fee BTC,BTC Price,Cost Basis (USD),Destination,Description,Transaction Hash,Note
+75377817-cb55-7ab0-b46f-95f121770f0a,Jan 01 2024 13:02:22,Deposit,50.00,,,,,,,,,
+64a5a104-43b2-bc3a-9a45-dfa5b75c9945,Jan 01 2024 13:03:00,Purchase,-50.00,,0.00113128,,44197.61,50.00,,,,
+0c15a73f-4a27-ba52-ae08-672b8301ced5,Jan 02 2024 13:04:22,Deposit,100.00,,,,,,,,,
+dfcbc3f7-5e21-90a8-32a5-c522af0d5d51,Jan 02 2024 13:05:00,Purchase,-100.00,,0.00222369,,44970.34,100.00,,,,
+`;
+
+// Coinbase — leading "Transactions"/User preamble + blank line before header; 2 Buys.
+const NESTED_COINBASE = `Transactions
+User,Demo User (synthetic data),47c631d5-08de-d617-2c28-cf1ecd88823b
+
+ID,Timestamp,Transaction Type,Asset,Quantity Transacted,Price Currency,Price at Transaction,Subtotal,Total (inclusive of fees and/or spread),Fees and/or Spread,Notes
+f5889c72-4841-5e97-1224-4152a34b26c8,2017-12-08 19:07:00 UTC,Buy,BTC,0.12277218,USD,"$16,047.61","$1,970.20","$2,000.00",$29.80,Bought 0.12277218 BTC for 2000.00 USD
+1a93ca57-f00e-ffb2-1165-5d0f79e975de,2017-12-12 09:47:00 UTC,Buy,BTC,0.05766248,USD,"$17,083.90",$985.10,"$1,000.00",$14.90,Bought 0.05766248 BTC for 1000.00 USD
+`;
+
+// Cash App — fully quoted fields, $-prefixed money, PST timestamps; the
+// Bitcoin Withdrawal row is filtered, leaving 2 Bitcoin Buys.
+const NESTED_CASHAPP = `"Transaction ID","Date","Transaction Type","Currency","Amount","Fee","Net Amount","Asset Type","Asset Price","Asset Amount","Status","Notes","Name of sender/receiver","Account"
+"dug4yv","2023-08-08 09:57:00 PST","Bitcoin Buy","USD","-$2,455.00","-$45.00","-$2,500.00","BTC","$29,770.51","0.08246416","COMPLETED","purchase of BTC 0.08246416","","Your Cash"
+"3dbbk3","2023-08-08 09:59:00 PST","Bitcoin Withdrawal","USD","-$2,500.00","$0","-$2,500.00","BTC","$29,770.51","0.08246416","COMPLETED","Withdrawing BTC 0.08246416","","Your Cash"
+"yegyrw","2023-08-08 11:04:00 PST","Bitcoin Buy","USD","-$491.00","-$9.00","-$500.00","BTC","$29,770.51","0.01649283","COMPLETED","purchase of BTC 0.01649283","","Your Cash"
+`;
+
+// Swan — two-line preamble, +00 tz offset on dates; deposit filtered, 1 Purchase.
+const NESTED_SWAN = `Swan Bitcoin - synthetic sample export - not real data
+Phone: 000-000-0000
+Event,Date,Timezone,Status,Transaction ID,Total USD,Transaction USD,Fee USD,Unit Count,Asset Type,BTC Price,Address Label,USD Cost Basis,Acquisition Date
+deposit,2023-11-17 15:29:30+00,UTC,settled,,504.95,,4.95,,USD,,,,
+purchase,2023-11-17 15:30:00+00,UTC,settled,c36fd56e-c24a-60ff-0252-525c6a3bdf21,500.00,500.00,,0.01365139,BTC,36626.32,,,
+`;
+
+/** A file as the folder picker hands it over: a relative path + its bytes. */
+interface PickedFile {
+  webkitRelativePath: string;
+  name: string;
+  content: string;
+}
+
+/**
+ * Reproduce ImportDropzone.ingestList's seam exactly: derive each NamedFile's
+ * name from `webkitRelativePath || name`, keep only `.csv` files, and carry
+ * the content through. This is the flow onFiles → handleReplaceFiles →
+ * commitFiles → normalizeFiles receives after a folder pick.
+ */
+function asFolderPick(files: PickedFile[]): NamedFile[] {
+  const isCsv = (n: string) => /\.csv$/i.test(n);
+  return files
+    .map((f) => ({ path: f.webkitRelativePath || f.name, file: f }))
+    .filter((p) => isCsv(p.path))
+    .map((p) => ({ name: p.path, content: p.file.content }));
+}
+
+describe("parent-folder recursive scan (webkitdirectory folder pick)", () => {
+  it("recognizes all four exchanges from one parent-folder pick, at any nesting depth", () => {
+    // One parent "all CSVs/" with a subfolder per exchange; Swan sits an extra
+    // level deep to prove depth is irrelevant to detection.
+    const picked: PickedFile[] = [
+      {
+        webkitRelativePath: "all CSVs/Strike/strike.csv",
+        name: "strike.csv",
+        content: NESTED_STRIKE,
+      },
+      {
+        webkitRelativePath: "all CSVs/Coinbase/coinbase_report.csv",
+        name: "coinbase_report.csv",
+        content: NESTED_COINBASE,
+      },
+      {
+        webkitRelativePath: "all CSVs/Cash App/cash_app.csv",
+        name: "cash_app.csv",
+        content: NESTED_CASHAPP,
+      },
+      {
+        webkitRelativePath: "all CSVs/Swan/2023/swan.csv", // deeper on purpose
+        name: "swan.csv",
+        content: NESTED_SWAN,
+      },
+    ];
+
+    const files = asFolderPick(picked);
+    const r = normalizeFiles(files, "imported");
+
+    // All four exchanges detected — the merged ledger spans every subfolder.
+    expect(r.stats.byExchange.map((e) => e.exchange).sort()).toEqual([
+      "CashApp",
+      "Coinbase",
+      "Strike",
+      "Swan",
+    ]);
+    expect(r.stats.filesIngested).toBe(4);
+    expect(r.stats.filesSkipped).toBe(0);
+    expect(r.stats.files.every((f) => f.recognized)).toBe(true);
+
+    // 2 Strike + 2 Coinbase + 2 Cash App + 1 Swan = 7 transactions.
+    expect(r.stats.total).toBe(7);
+
+    // NamedFile names preserve the full nested relative path (so same-named
+    // exports in different subfolders never collide), including the deep one.
+    expect(r.stats.files.map((f) => f.fileName)).toContain(
+      "all CSVs/Swan/2023/swan.csv",
+    );
+
+    // Sanity: each exchange contributes its expected transaction count.
+    const byName = Object.fromEntries(
+      r.stats.byExchange.map((e) => [e.exchange, e.transactions]),
+    );
+    expect(byName).toMatchObject({
+      Strike: 2,
+      Coinbase: 2,
+      CashApp: 2,
+      Swan: 1,
+    });
+  });
+
+  it("keeps unrecognized nested CSVs loud and drops non-CSV files from the pick", () => {
+    const picked: PickedFile[] = [
+      {
+        webkitRelativePath: "all CSVs/Strike/strike.csv",
+        name: "strike.csv",
+        content: NESTED_STRIKE,
+      },
+      // A non-CSV should never reach the ETL — filtered at the dropzone seam.
+      {
+        webkitRelativePath: "all CSVs/README.txt",
+        name: "README.txt",
+        content: "just some notes",
+      },
+      // A nested CSV we can't identify must be surfaced, not silently swallowed.
+      {
+        webkitRelativePath: "all CSVs/Misc/mystery-export.csv",
+        name: "mystery-export.csv",
+        content: UNKNOWN,
+      },
+    ];
+
+    const files = asFolderPick(picked);
+    expect(files.map((f) => f.name)).not.toContain("all CSVs/README.txt");
+
+    const r = normalizeFiles(files, "imported");
+    expect(r.stats.filesIngested).toBe(1);
+    expect(r.stats.filesSkipped).toBe(1);
+    const unknown = r.stats.files.find((f) => !f.recognized);
+    expect(unknown?.fileName).toBe("all CSVs/Misc/mystery-export.csv");
+  });
+});
+
 describe("mergeEtlResults — legacy-path append fallback", () => {
   it("preserves the existing ledger when adding non-overlapping transactions", () => {
     // Simulate the pre-upgrade case: existing imported ledger came from an
