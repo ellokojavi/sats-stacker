@@ -120,7 +120,7 @@ A **Demo / Real** toggle in the header switches between synthetic data (shareabl
 
 Two ways to load real data, and you can mix exports from all four exchanges:
 
-- **In-app import** — drop your exports into the import zone. They're parsed in your browser and remembered on this device. The importer **appends to your existing pool**: drop another CSV later and it merges into what's already loaded (re-dropping a file with the same name replaces just that one file). A separate **Replace all CSVs** action wipes the pool when you want a clean slate.
+- **In-app import** — drop your exports into the import zone, as loose CSV files **or whole folders** (drag several folders at once, or use the **Choose files or folder** picker — one folder per exchange, mirroring `data/raw/`). Every `.csv` inside is walked recursively. They're parsed in your browser and remembered on this device. The importer **appends to your existing pool**: drop another CSV later and it merges into what's already loaded (re-dropping a file with the same name replaces just that one file). A separate **Replace all CSVs** action swaps the pool, and **Clear imported data** — behind a confirmation dialog so a stray click can't wipe your ledger — resets to a clean slate.
 - **Local folder** — drop CSVs into `data/private/` (any layout). The app loads them on startup.
 
 Both keep real data out of the repo: `data/private/` is git-ignored, the browser import never writes to disk, and `.gitignore` blocks common real-export filenames. `scripts/generate_data.py` writes the synthetic demo CSVs in each exchange's native format — **the repository contains no real financial data.**
@@ -208,7 +208,7 @@ npm install
 npm run dev
 ```
 
-Then open <http://localhost:3000>.
+Then open <http://localhost:3000>. For a condensed, copy-paste quickstart, see [`RUNNING.md`](RUNNING.md).
 
 ### Run the tests
 
@@ -278,6 +278,7 @@ sats-stacker was built in phases.
 - [x] **Phase 9 — Dual-model Projection tab**: the Power Law tab is now **Projection**, with an in-tab model toggle. The original Power Law fit ships alongside a new **Quantile Bands** model — Cowen (2026)'s asymmetric quadratic quantile regression of log₁₀(price) on centered log-time, rearranged (Chernozhukov, Fernández-Val & Galichon 2010) so the seven conditional quantiles stay monotone at long horizons. Both models share the metric strip, historical log-log chart, +5Y forecast extension, forward fair-value milestones, holdings projection chart, and DCA overlay, so toggling between them is an instant swap rather than a different view.
 - [x] **Phase 10 — Live chain status in the header**: a new chip beside the BTC price shows the current block height and a projected calendar date for the next halving (block 1,050,000). Pulls from mempool.space with a blockstream.info fallback, and uses the current difficulty epoch's average block time rather than a flat 10-minute assumption so the ETA tracks real network conditions.
 - [x] **Phase 11 — Multi-file import & chart polish**: the in-app importer now **appends** rather than replaces — drop another CSV later and it merges into the pool, with a `mergeEtlResults` transaction-level fallback so users who had data loaded before raw-file persistence shipped don't lose it on the first append. The HODLings chart picks up a **Lin / Log Y-axis toggle** with per-axis dynamic domains computed from the visible window (so a 1-year zoom doesn't render as a flat line at the top of a 6-decade axis), a **Stack** preset that bounds the visible range to your stacking era (vs. **All**, which now spans the full bundled BTC price history with the portfolio joining mid-curve), and an X-axis tick deduper that picks one label per year (or per month) so the same "2022" never renders twice. The Projection tab's historical chart gains the same Stack preset.
+- [x] **Phase 12 — Folder import, safer clears & real-export parsing**: the importer now ingests **whole folders** — drag one or more onto the drop zone (each is walked recursively for `.csv` files) or pick one from the single **Choose files or folder** control, so a per-exchange folder layout imports in a single gesture. Each file is remembered under its relative path, so same-named exports in different folders don't collide. **Clear imported data** now goes through a **confirmation dialog** (Cancel default, Escape to dismiss) so a mis-click can't wipe the ledger. The Strike normalizer accepts Strike's **real account-statement schema** (`Transaction ID` / `Time (UTC)` / `Status`) alongside the older synthetic one, fixing an issue where real monthly Strike exports parsed with blank dates and dropped out of the dashboard.
 
 ## Disclaimer
 

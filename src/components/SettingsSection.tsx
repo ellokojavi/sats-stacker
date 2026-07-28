@@ -77,6 +77,9 @@ export function SettingsSection({
   const [showImporter, setShowImporter] = useState(
     source === "demo" && !imported,
   );
+  // Clearing the imported pool is destructive and irreversible, so it's gated
+  // behind a confirmation dialog rather than firing on a single click.
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   // Cross-check the active ledger against the bundled price history. Memoize
   // so we don't redo the bisect on every render — the inputs only change
@@ -213,10 +216,7 @@ export function SettingsSection({
               {imported && (
                 <button
                   type="button"
-                  onClick={() => {
-                    onClearImported();
-                    setShowImporter(false);
-                  }}
+                  onClick={() => setConfirmingClear(true)}
                   className="rounded border border-edge px-2.5 py-1 text-[11px] text-muted hover:border-down/60 hover:text-down"
                 >
                   Clear imported data
@@ -324,6 +324,63 @@ export function SettingsSection({
           intro="You imported these CSVs earlier in this browser. Switch to Real mode to see them on the dashboard."
           dataQuality={lastImportDataQuality ?? undefined}
         />
+      )}
+
+      {confirmingClear && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setConfirmingClear(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setConfirmingClear(false);
+          }}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="clear-data-title"
+            aria-describedby="clear-data-desc"
+            className="w-full max-w-sm rounded-lg border border-edge bg-night p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3
+              id="clear-data-title"
+              className="text-[13px] font-medium text-ink"
+            >
+              Clear all imported data?
+            </h3>
+            <p id="clear-data-desc" className="mt-2 text-[11px] text-muted">
+              This removes every imported CSV
+              {imported?.stats?.total
+                ? ` (${imported.stats.total.toLocaleString()} transaction${
+                    imported.stats.total === 1 ? "" : "s"
+                  })`
+                : ""}{" "}
+              from this browser. It can&apos;t be undone — you&apos;ll need to
+              re-import your exports. Your files on disk are not touched.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setConfirmingClear(false)}
+                className="rounded border border-edge px-2.5 py-1 text-[11px] text-ink hover:bg-edge"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onClearImported();
+                  setShowImporter(false);
+                  setConfirmingClear(false);
+                }}
+                className="rounded border border-down/60 bg-down/10 px-2.5 py-1 text-[11px] text-down hover:bg-down/20"
+              >
+                Clear all data
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

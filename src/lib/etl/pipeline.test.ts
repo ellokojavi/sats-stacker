@@ -12,6 +12,43 @@ const UNKNOWN = `Some other header,foo,bar
 1,2,3
 `;
 
+// Strike's real account-statement export uses a different header schema than
+// the older synthetic sample above: "Transaction ID"/"Time (UTC)"/"Status"
+// instead of "Reference"/"Date & Time (UTC)". The ETL must ingest both.
+const STRIKE_REAL = `Transaction ID,Time (UTC),Status,Transaction Type,Amount USD,Fee USD,Amount BTC,Fee BTC,Description,Exchange Rate,Transaction Hash
+5dd78818-a845-47c2-acc7-48cceda7a932,Jun 01 2026 13:00:08,Completed,Deposit,500.00,,,,,,
+ce45bdbc-292b-410d-87b8-a012e94158ae,Jun 01 2026 13:00:35,Completed,Purchase,-500.00,,0.00693437,,,72104.60,
+3099b576-3b5b-45b0-8699-ebc99583a421,Jun 02 2026 13:00:15,Completed,Purchase,-250.00,,0.00362747,,,68918.46,
+`;
+
+describe("Strike real account-statement schema", () => {
+  it("ingests the real export (Transaction ID / Time (UTC) / Status columns)", () => {
+    const r = normalizeFiles(
+      [{ name: "2026-06 Account Statement.csv", content: STRIKE_REAL }],
+      "imported",
+    );
+    // Two Purchases ingested; the Deposit row is filtered out.
+    expect(r.stats.total).toBe(2);
+    expect(r.stats.byExchange[0]).toMatchObject({
+      exchange: "Strike",
+      transactions: 2,
+    });
+    // Dates and ids must be populated (the bug left them blank).
+    expect(r.transactions.every((t) => /^\d{4}-\d{2}-\d{2}/.test(t.date))).toBe(
+      true,
+    );
+    expect(r.transactions.every((t) => t.id.length > 0)).toBe(true);
+    expect(r.stats.firstDate?.slice(0, 10)).toBe("2026-06-01");
+    expect(r.stats.lastDate?.slice(0, 10)).toBe("2026-06-02");
+    expect(r.transactions[0]).toMatchObject({
+      id: "ce45bdbc-292b-410d-87b8-a012e94158ae",
+      source: "Strike",
+      action: "BUY",
+      usd: 500,
+    });
+  });
+});
+
 describe("ImportSummary pipeline output", () => {
   it("captures per-file stats and date ranges", () => {
     const files: NamedFile[] = [

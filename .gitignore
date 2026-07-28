@@ -41,6 +41,7 @@ next-env.d.ts
 # — kept on disk for context, never pushed to the public repo.
 # ---------------------------------------------------------------
 /docs/daily-briefing-*.md
+/docs/backlog.md
 
 # ---------------------------------------------------------------
 # SAFEGUARD: block common real-export filenames anywhere else in

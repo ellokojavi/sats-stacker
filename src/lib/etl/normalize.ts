@@ -41,12 +41,30 @@ function stripTzOffset(raw: string): string {
   return raw.replace(/\s*[+-]\d{2}:?\d{0,2}\s*$/, "").trim();
 }
 
+/** First non-empty value among a list of candidate column names. */
+function pick(r: Record<string, string>, keys: string[]): string {
+  for (const key of keys) {
+    const v = r[key];
+    if (v != null && v.trim() !== "") return v;
+  }
+  return "";
+}
+
 export function normalizeStrike(rows: Record<string, string>[]): Transaction[] {
   return rows
-    .filter((r) => (r["Transaction Type"] ?? "").trim() === "Purchase")
+    .filter((r) => {
+      if ((r["Transaction Type"] ?? "").trim() !== "Purchase") return false;
+      // Strike's real exports carry a Status column; the older synthetic
+      // schema doesn't. Only gate on it when it's present.
+      const status = (r["Status"] ?? "").trim();
+      return status === "" || status.toLowerCase() === "completed";
+    })
     .map((r) => ({
-      id: (r["Reference"] ?? "").trim(),
-      date: parseStrikeDate(r["Date & Time (UTC)"] ?? ""),
+      // Column names differ between Strike's real account-statement export
+      // ("Transaction ID", "Time (UTC)") and the older synthetic schema
+      // ("Reference", "Date & Time (UTC)"). Accept either.
+      id: pick(r, ["Reference", "Transaction ID"]).trim(),
+      date: parseStrikeDate(pick(r, ["Date & Time (UTC)", "Time (UTC)"])),
       source: "Strike",
       action: "BUY",
       btc: Math.abs(cleanMoney(r["Amount BTC"])),
