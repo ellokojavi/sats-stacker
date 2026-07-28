@@ -53,6 +53,9 @@ export function ImportSummary({
   onClearUnrecognized?: () => void;
 }) {
   const hasUnrecognized = stats.files.some((f) => !f.recognized);
+  const recognizedCount = stats.files.filter((f) => f.recognized).length;
+  const unrecognizedCount = stats.files.length - recognizedCount;
+  const exchangeCount = stats.byExchange.length;
   const range = timeframe(stats.firstDate, stats.lastDate);
   const spanDays =
     stats.firstDate && stats.lastDate
@@ -136,8 +139,31 @@ export function ImportSummary({
 
       {stats.files.length > 0 && (
         <div className="mt-4">
+          <p role="status" className="mb-2 text-[13px] text-ink">
+            Recognized{" "}
+            <span className="font-medium text-up">
+              {recognizedCount} file{recognizedCount === 1 ? "" : "s"}
+            </span>{" "}
+            across{" "}
+            <span className="font-medium text-ink">
+              {exchangeCount} exchange{exchangeCount === 1 ? "" : "s"}
+            </span>
+            {unrecognizedCount > 0 ? (
+              <>
+                {" · "}
+                <span className="font-medium text-down">
+                  {unrecognizedCount} unrecognized
+                </span>
+              </>
+            ) : (
+              <>
+                {" · "}
+                <span className="text-up">all recognized</span>
+              </>
+            )}
+          </p>
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-[11px] uppercase tracking-wider text-muted">
+            <h3 className="text-[11px] uppercase tracking-wider text-faint">
               By file
             </h3>
             {onRemoveFile && onClearUnrecognized && hasUnrecognized && (

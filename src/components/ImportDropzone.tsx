@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { NamedFile } from "@/lib/etl/pipeline";
 
 /**
@@ -15,8 +15,8 @@ import type { NamedFile } from "@/lib/etl/pipeline";
  *   • loose CSV files — drop or pick several at once;
  *   • whole folders — drop one or more folders (e.g. one per exchange, like
  *     the repo's own data/raw/ layout) and every .csv inside is walked
- *     recursively. A "Choose folder" button covers browsers/OSes where
- *     dragging a folder isn't convenient.
+ *     recursively. A secondary "…or add a whole folder" link covers
+ *     browsers/OSes where dragging a folder isn't convenient.
  *
  * Nested folders are flattened; each file's relative path (e.g.
  * "Coinbase/coinbase-transactions.csv") becomes its NamedFile name so files
@@ -99,31 +99,13 @@ export function ImportDropzone({
 }) {
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   // A file <input> can't offer "files or a folder" in one native dialog
-  // (webkitdirectory forces folder-only), so a single button opens a small
-  // menu to pick which. Close it on outside-click or Escape.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointer = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuOpen]);
+  // (webkitdirectory forces folder-only). Drag-and-drop is the truly unified
+  // path; for click-to-browse we lead with the common case (loose files) and
+  // demote folder selection to a quiet secondary link.
 
   function emit(files: NamedFile[]) {
     if (files.length > 0) onFiles(files);
@@ -172,8 +154,8 @@ export function ImportDropzone({
 
   const headline =
     mode === "append"
-      ? "Drop more CSV files or folders to add them to your pool"
-      : "Drop your exchange CSV exports — files or whole folders — here";
+      ? "Drop more files or folders — we'll add them to your pool"
+      : "Drop files or folders — we'll figure out the rest";
 
   return (
     <div>
@@ -194,49 +176,26 @@ export function ImportDropzone({
       >
         <p className="text-[13px] text-ink">{headline}</p>
         <p className="mt-1 text-[11px] text-muted">
-          Strike, Coinbase, Cash App, Swan — drop one folder per exchange, or
-          several files at once
+          Strike, Coinbase, Cash App, Swan — one folder per exchange or a
+          handful of loose CSVs, mixed is fine
         </p>
-        <div ref={menuRef} className="relative mt-3">
+        <div className="mt-3 flex flex-col items-center">
           <button
             type="button"
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() => fileInputRef.current?.click()}
             disabled={busy}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            className="rounded border border-edge px-3 py-1 text-[11px] text-ink hover:bg-edge disabled:opacity-50"
+            className="rounded-md bg-bitcoin px-3.5 py-1.5 text-[12px] font-medium text-night hover:bg-bitcoin/90 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bitcoin/40 focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
           >
-            {busy ? "Reading…" : "Choose files or folder"}
+            {busy ? "Reading…" : "Add exchange files"}
           </button>
-          {menuOpen && (
-            <div
-              role="menu"
-              className="absolute left-1/2 z-20 mt-1 w-40 -translate-x-1/2 overflow-hidden rounded-md border border-edge bg-night text-[11px] shadow-lg"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  fileInputRef.current?.click();
-                }}
-                className="block w-full px-3 py-1.5 text-left text-ink hover:bg-edge"
-              >
-                Files…
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  folderInputRef.current?.click();
-                }}
-                className="block w-full px-3 py-1.5 text-left text-ink hover:bg-edge"
-              >
-                Folder…
-              </button>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => folderInputRef.current?.click()}
+            disabled={busy}
+            className="mt-2 rounded text-[11px] text-muted underline decoration-edge underline-offset-2 hover:text-ink disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bitcoin/40"
+          >
+            …or add a whole folder
+          </button>
         </div>
         <input
           ref={fileInputRef}
